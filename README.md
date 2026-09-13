@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/logo.svg" alt="AzuraAzureQuant Logo" width="680">
+  <img src="./assets/logo.png" alt="AzuraAzureQuant Logo" width="680">
 </p>
 
 <p align="center">

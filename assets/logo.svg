@@ -1,5 +1,9 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 780 160" width="100%" height="100%">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 780 160" width="780" height="160">
   <defs>
+    <linearGradient id="bgQuant" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#080E1A" />
+      <stop offset="100%" stop-color="#050810" />
+    </linearGradient>
     <linearGradient id="cyanGrad" x1="0%" y1="0%" x2="100%" y2="100%">
       <stop offset="0%" stop-color="#00F2FE" />
       <stop offset="100%" stop-color="#4FACFE" />
@@ -8,43 +12,25 @@
       <stop offset="0%" stop-color="#00E676" />
       <stop offset="100%" stop-color="#1DE9B6" />
     </linearGradient>
-    <linearGradient id="cardGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#0A192F" />
-      <stop offset="100%" stop-color="#112240" />
-    </linearGradient>
-    <filter id="quantGlow" x="-20%" y="-20%" width="140%" height="140%">
-      <feGaussianBlur stdDeviation="3.5" result="blur" />
-      <feComposite in="SourceGraphic" in2="blur" operator="over" />
-    </filter>
-    <style>
-      .quant-title { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-weight: 900; font-size: 42px; letter-spacing: 3.5px; fill: #0A192F; }
-      .quant-accent { fill: #00F2FE; }
-      .quant-sub { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-weight: 600; font-size: 13.5px; letter-spacing: 1.8px; fill: #4A5568; text-transform: uppercase; }
-      .quant-badge { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-weight: 700; font-size: 11px; letter-spacing: 1.5px; fill: #008080; }
-      @media (prefers-color-scheme: dark) {
-        .quant-title { fill: #F7FAFC; }
-        .quant-sub { fill: #A0AEC0; }
-        .quant-badge { fill: #00F2FE; }
-      }
-    </style>
   </defs>
 
-  <!-- ICON MARK (Alpha Crest + Financial Candlesticks) -->
-  <g transform="translate(15, 10)">
+  <!-- Self-Contained High-Contrast Obsidian Container -->
+  <rect width="780" height="160" rx="14" fill="url(#bgQuant)" stroke="#112240" stroke-width="1.5" />
+
+  <!-- ICON MARK -->
+  <g transform="translate(18, 10)">
     <!-- Geometric Shield Background -->
-    <rect x="15" y="15" width="110" height="110" rx="26" fill="url(#cardGrad)" stroke="url(#cyanGrad)" stroke-width="1.8" />
+    <rect x="15" y="15" width="110" height="110" rx="26" fill="#0A192F" stroke="url(#cyanGrad)" stroke-width="1.8" />
 
     <!-- Candlestick Graphic Vectors -->
-    <!-- Bearish wick & body (muted red/purple) -->
     <line x1="38" y1="36" x2="38" y2="88" stroke="#EF4444" stroke-width="1.5" opacity="0.6" />
     <rect x="34" y="48" width="8" height="24" rx="1.5" fill="#EF4444" opacity="0.75" />
 
-    <!-- Bullish wick & body (electric green) -->
     <line x1="56" y1="44" x2="56" y2="102" stroke="url(#emeraldGrad)" stroke-width="1.5" />
     <rect x="52" y="54" width="8" height="32" rx="1.5" fill="url(#emeraldGrad)" />
 
     <!-- Primary Stylized Alpha Dynamic Wave (Dual-Alpha Vector) -->
-    <path d="M 35 98 C 50 40, 68 40, 85 75 C 96 98, 114 98, 118 70" fill="none" stroke="url(#cyanGrad)" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round" filter="url(#quantGlow)" />
+    <path d="M 35 98 C 50 40, 68 40, 85 75 C 96 98, 114 98, 118 70" fill="none" stroke="url(#cyanGrad)" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round" />
     
     <!-- Secondary Counter-Trend Short Wave -->
     <path d="M 45 60 C 65 85, 85 85, 105 45" fill="none" stroke="url(#emeraldGrad)" stroke-width="2" stroke-dasharray="3 3" stroke-linecap="round" />
@@ -56,15 +42,15 @@
   </g>
 
   <!-- TYPOGRAPHIC WORDMARK & TAGLINE -->
-  <g transform="translate(165, 0)">
+  <g transform="translate(162, 0)">
     <!-- Category Badge -->
-    <rect x="0" y="26" width="225" height="22" rx="11" fill="url(#cyanGrad)" fill-opacity="0.15" />
-    <text x="112.5" y="41" text-anchor="middle" class="quant-badge">QUANTITATIVE FUTURES ENGINE</text>
+    <rect x="0" y="26" width="225" height="22" rx="11" fill="#00F2FE" fill-opacity="0.15" stroke="#00F2FE" stroke-width="0.8" />
+    <text x="112.5" y="41" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="10.5" font-weight="700" letter-spacing="1.5" fill="#00F2FE">QUANTITATIVE FUTURES ENGINE</text>
 
     <!-- Main Title -->
-    <text x="0" y="92" class="quant-title">AZURA<tspan fill="url(#cyanGrad)">AZURE</tspan>QUANT</text>
+    <text x="0" y="93" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="40" font-weight="900" letter-spacing="3.5" fill="#FFFFFF">AZURA<tspan fill="#00F2FE">AZURE</tspan>QUANT</text>
 
     <!-- Subtitle / Tagline -->
-    <text x="2" y="120" class="quant-sub">Dual-Alpha Algorithmic Trading on Bybit Linear Futures</text>
+    <text x="2" y="122" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="12.5" font-weight="600" letter-spacing="1.8" fill="#94A3B8">DUAL-ALPHA ALGORITHMIC TRADING ON BYBIT LINEAR FUTURES</text>
   </g>
 </svg>
