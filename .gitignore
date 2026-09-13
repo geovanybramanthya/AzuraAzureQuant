@@ -1,0 +1,95 @@
+﻿# ==============================================================================
+# AzuraAzureQuant - Git Ignore Policy
+# Strictly prevents secret leakage, database pollution, and large binaries
+# ==============================================================================
+
+# Environment & Secrets (Zero Leakage)
+.env
+.env.*
+*.env
+*.key
+*.pem
+*.secret
+credentials.json
+token.json
+
+# Python Virtual Environments
+.venv/
+venv/
+ENV/
+env/
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Local SQLite Databases & Trading State (Zero Legacy Pollution)
+*.sqlite
+*.sqlite3
+*.sqlite-shm
+*.sqlite-wal
+*.db
+tradesv3.*
+user_data/tradesv3.*
+archive_legacy_databases/
+user_data/archive_legacy_databases/
+
+# Raw Exchange Market Data (Downloadable via freqtrade download-data)
+user_data/data/
+data/
+*.feather
+*.parquet
+
+# Heavy Backtest & Hyperopt Archives
+user_data/backtest_results/
+user_data/hyperopt_results/
+backtest_results/
+hyperopt_results/
+*.pkl
+*.pickle
+*.fstore
+*.zip
+*.tar.gz
+
+# Runtime Logs
+user_data/logs/
+logs/
+*.log
+
+# Dashboard Frontend Dependencies & Build Output
+dashboard/node_modules/
+dashboard/dist/
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Operating System & Editor Artifacts
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/
+*.swp
+*.swo

@@ -1,0 +1,1332 @@
+from pathlib import Path
+
+html_content = '''<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Apex Quantum | Autonomous Futures Command Center</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+    body { font-family: 'Plus Jakarta Sans', sans-serif; background-color: #07090e; color: #e2e8f0; }
+    .mono { font-family: 'JetBrains Mono', monospace; }
+    .glass-panel { background: rgba(13, 17, 26, 0.85); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.07); }
+    .glass-card { background: rgba(18, 24, 38, 0.7); border: 1px solid rgba(255, 255, 255, 0.05); }
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #0d111a; }
+    ::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 3px; }
+    .tab-active { background: #2563eb; color: #ffffff; box-shadow: 0 4px 14px 0 rgba(37, 99, 235, 0.35); }
+    .tab-inactive { color: #94a3b8; }
+    .tab-inactive:hover { color: #ffffff; background: rgba(30, 41, 59, 0.5); }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col antialiased selection:bg-blue-600 selection:text-white">
+
+  <!-- TOP NAVIGATION APP BAR -->
+  <header class="border-b border-slate-800/80 bg-[#0a0d14]/90 sticky top-0 z-50 backdrop-blur-md px-4 lg:px-8 py-3">
+    <div class="max-w-[1700px] mx-auto flex flex-col md:flex-row items-center justify-between gap-4">
+      
+      <!-- Brand & Version -->
+      <div class="flex items-center gap-3">
+        <div class="h-10 w-10 rounded-xl bg-gradient-to-tr from-blue-600 to-cyan-400 p-[1px] flex items-center justify-center shadow-lg shadow-blue-500/20">
+          <div class="h-full w-full bg-[#07090e] rounded-xl flex items-center justify-center">
+            <i data-lucide="zap" class="w-5 h-5 text-cyan-400"></i>
+          </div>
+        </div>
+        <div>
+          <div class="flex items-center gap-2">
+            <span class="font-extrabold text-base tracking-wider text-white">APEX QUANTUM</span>
+            <span class="px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest bg-blue-500/10 text-blue-400 border border-blue-500/20 rounded-md">v3.0 AI</span>
+          </div>
+          <p class="text-xs text-slate-400 font-medium">Autonomous Futures Command Center</p>
+        </div>
+      </div>
+
+      <!-- MAIN MODE TABS (3-STATE SEPARATION) -->
+      <div class="flex items-center bg-[#0d111a] p-1 rounded-xl border border-slate-800">
+        <!-- Tab 1: Live Simulasi -->
+        <button id="nav-live-sim" onclick="switchView('live_sim')" class="tab-active flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all">
+          <span class="relative flex h-2 w-2">
+            <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+            <span class="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+          </span>
+          Simulasi Live (Dry-Run)
+        </button>
+
+        <!-- Tab 2: 2.5Y Benchmark -->
+        <button id="nav-benchmark" onclick="switchView('benchmark')" class="tab-inactive flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all">
+          <i data-lucide="line-chart" class="w-3.5 h-3.5 text-cyan-400"></i>
+          2.5Y Benchmark Explorer
+        </button>
+
+        <!-- Tab 3: Trading Asli -->
+        <button id="nav-real-trading" onclick="switchView('real_trading')" class="tab-inactive flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all">
+          <i data-lucide="shield-alert" class="w-3.5 h-3.5 text-amber-400"></i>
+          Trading Asli (Real Mode)
+        </button>
+      </div>
+
+      <!-- Top Right Meta Tickers -->
+      <div class="flex items-center gap-3">
+        <div class="hidden xl:flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#0d111a] border border-slate-800 text-xs">
+          <i data-lucide="clock" class="w-3.5 h-3.5 text-slate-400"></i>
+          <span class="text-slate-400">WIB:</span>
+          <span id="wib-clock" class="mono font-semibold text-slate-200">--:--:--</span>
+        </div>
+        <div class="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-xs font-medium text-emerald-400">
+          <span class="h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span>
+          <span id="top-badge-status">Bybit Isolated 3.0x</span>
+        </div>
+        <button onclick="fetchData()" class="p-2 rounded-lg bg-[#0d111a] hover:bg-slate-800 border border-slate-800 text-slate-300 hover:text-white transition-all" title="Refresh Data">
+          <i data-lucide="refresh-cw" id="refresh-icon" class="w-4 h-4"></i>
+        </button>
+      </div>
+
+    </div>
+  </header>
+
+  <!-- MAIN WRAPPER CONTAINER -->
+  <main class="flex-1 max-w-[1700px] w-full mx-auto px-4 lg:px-8 py-6 space-y-6">
+
+    <!-- ========================================================================= -->
+    <!-- VIEW 1: LIVE BOT SIMULATION (DRY-RUN PAPER TRADING)                       -->
+    <!-- ========================================================================= -->
+    <div id="view-live-sim" class="space-y-6">
+      
+      <!-- Mode Announcement Banner -->
+      <div class="p-4 rounded-2xl bg-gradient-to-r from-blue-950/40 via-[#0d111a] to-emerald-950/30 border border-blue-500/30 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+        <div class="flex items-center gap-3">
+          <div class="p-2.5 rounded-xl bg-blue-500/20 text-blue-400 border border-blue-500/30">
+            <i data-lucide="cpu" class="w-5 h-5"></i>
+          </div>
+          <div>
+            <div class="flex items-center gap-2">
+              <span class="text-sm font-bold text-white uppercase tracking-wider">Lingkungan: Simulasi Live (Dry-Run Bybit Futures)</span>
+              <span class="px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-widest rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">PAPER TRADING AKTIF</span>
+            </div>
+            <p class="text-xs text-slate-400 mt-0.5">
+              Bot menerima feed harga real-time WebSocket Bybit Futures dan mengeksekusi order virtual dengan saldo $25.00 USDT. <strong class="text-slate-200">0 Modal Nyata yang Berisiko</strong>.
+            </p>
+          </div>
+        </div>
+        <div class="flex items-center gap-2 text-xs mono text-slate-300 bg-slate-900/80 px-3 py-1.5 rounded-lg border border-slate-800">
+          <i data-lucide="radio" class="w-3.5 h-3.5 text-emerald-400 animate-pulse"></i>
+          <span>Session Start: <strong class="text-white">31 Ags 2026, 11:22 WIB</strong></span>
+        </div>
+      </div>
+
+      <!-- ROW 1: LIVE SIMULATION KPIS -->
+      <section class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        
+        <!-- Live Balance -->
+        <div class="glass-panel rounded-2xl p-5 relative overflow-hidden">
+          <div class="flex justify-between items-start">
+            <span class="text-xs font-semibold tracking-wider uppercase text-slate-400">Saldo Virtual Simulasi</span>
+            <div class="p-2 rounded-xl bg-blue-500/10 text-blue-400 border border-blue-500/20"><i data-lucide="wallet" class="w-4 h-4"></i></div>
+          </div>
+          <div class="mt-3">
+            <div class="text-3xl font-extrabold text-white tracking-tight mono" id="live-balance">$25.00 <span class="text-xs font-medium text-slate-400">USDT</span></div>
+            <div class="flex items-center gap-2 mt-2 text-xs text-slate-400">
+              <span>Free Collateral:</span><span class="text-slate-200 font-semibold mono" id="live-free">$25.00 USDT</span>
+            </div>
+          </div>
+          <div class="absolute bottom-0 left-0 right-0 h-1 bg-gradient-to-r from-blue-500 to-cyan-500"></div>
+        </div>
+
+        <!-- Live Session PnL -->
+        <div class="glass-panel rounded-2xl p-5 relative overflow-hidden">
+          <div class="flex justify-between items-start">
+            <span class="text-xs font-semibold tracking-wider uppercase text-slate-400">Realized P&L Sesi Ini</span>
+            <div class="p-2 rounded-xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"><i data-lucide="trending-up" class="w-4 h-4"></i></div>
+          </div>
+          <div class="mt-3">
+            <div class="text-3xl font-extrabold text-emerald-400 tracking-tight mono" id="live-session-pnl">+$0.00 <span class="text-xs font-medium text-slate-400">(0.00%)</span></div>
+            <div class="flex items-center gap-2 mt-2 text-xs text-slate-400">
+              <span>Closed Trades Hari Ini:</span><span class="text-slate-200 font-semibold mono" id="live-closed-count">0 Deals</span>
+            </div>
+          </div>
+          <div class="absolute bottom-0 left-0 right-0 h-1 bg-gradient-to-r from-emerald-500 to-teal-500"></div>
+        </div>
+
+        <!-- Live Unrealized Floating PnL -->
+        <div class="glass-panel rounded-2xl p-5 relative overflow-hidden">
+          <div class="flex justify-between items-start">
+            <span class="text-xs font-semibold tracking-wider uppercase text-slate-400">Floating Unrealized P&L</span>
+            <div class="p-2 rounded-xl bg-purple-500/10 text-purple-400 border border-purple-500/20"><i data-lucide="activity" class="w-4 h-4"></i></div>
+          </div>
+          <div class="mt-3">
+            <div class="text-3xl font-extrabold text-emerald-400 tracking-tight mono" id="live-floating-pnl">+$0.00 <span class="text-xs font-medium text-slate-400">(0.00%)</span></div>
+            <div class="flex items-center gap-2 mt-2 text-xs text-slate-400">
+              <span>Posisi Terbuka:</span><span class="text-slate-200 font-semibold mono" id="live-open-slots">0 / 2 Slots</span>
+            </div>
+          </div>
+          <div class="absolute bottom-0 left-0 right-0 h-1 bg-gradient-to-r from-purple-500 to-blue-500"></div>
+        </div>
+
+        <!-- Live Risk Guardrail & Engine -->
+        <div class="glass-panel rounded-2xl p-5 relative overflow-hidden">
+          <div class="flex justify-between items-start">
+            <span class="text-xs font-semibold tracking-wider uppercase text-slate-400">Status Engine & Proteksi</span>
+            <div class="p-2 rounded-xl bg-amber-500/10 text-amber-400 border border-amber-500/20"><i data-lucide="shield-check" class="w-4 h-4"></i></div>
+          </div>
+          <div class="mt-3">
+            <div class="text-2xl font-extrabold text-emerald-400 tracking-tight mono">ACTIVE (PID 141404)</div>
+            <div class="flex items-center gap-2 mt-2 text-xs text-slate-400">
+              <span>Daily Loss Guard:</span><span class="text-emerald-400 font-semibold mono">0.00% / -2.00%</span>
+            </div>
+          </div>
+          <div class="absolute bottom-0 left-0 right-0 h-1 bg-gradient-to-r from-amber-500 to-emerald-500"></div>
+        </div>
+
+      </section>
+
+      <!-- ROW 2: LIVE SIMULATION ACTIVE RADAR & WORKSPACE -->
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        
+        <!-- LEFT 8 COLS: ACTIVE OPEN TRADES & LIVE RADAR -->
+        <div class="lg:col-span-8 space-y-6">
+          
+          <!-- Active Open Positions Card -->
+          <div class="glass-panel rounded-2xl p-6">
+            <div class="flex items-center justify-between pb-4 border-b border-slate-800">
+              <div class="flex items-center gap-2">
+                <i data-lucide="layers" class="w-5 h-5 text-blue-400"></i>
+                <h2 class="text-lg font-bold text-white">Posisi Terbuka Real-Time (Live Simulation)</h2>
+              </div>
+              <span class="px-3 py-1 text-xs font-semibold rounded-lg bg-[#0d111a] border border-slate-800 text-slate-300 mono" id="live-open-badge">0 Open / 2 Max</span>
+            </div>
+
+            <div id="live-open-trades-container" class="mt-4">
+              <!-- Rendered via JS -->
+            </div>
+          </div>
+
+          <!-- Live Multi-Pair Radar Table -->
+          <div class="glass-panel rounded-2xl p-6">
+            <div class="flex items-center justify-between pb-4 border-b border-slate-800">
+              <div class="flex items-center gap-2">
+                <i data-lucide="radar" class="w-5 h-5 text-cyan-400"></i>
+                <h2 class="text-lg font-bold text-white">Live Multi-Pair Market Radar (Bybit Futures Feed)</h2>
+              </div>
+              <span class="px-2.5 py-1 text-xs font-semibold rounded-md bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">4 Pairs Monitored</span>
+            </div>
+
+            <div class="overflow-x-auto mt-4">
+              <table class="w-full text-left text-xs">
+                <thead>
+                  <tr class="border-b border-slate-800 text-slate-400 font-semibold tracking-wider uppercase text-[11px]">
+                    <th class="py-3 px-3">Pair Asset</th>
+                    <th class="py-3 px-3">Mark Price</th>
+                    <th class="py-3 px-3">24h Change</th>
+                    <th class="py-3 px-3">RSI 1H / Gate</th>
+                    <th class="py-3 px-3">Macro 4H Trend</th>
+                    <th class="py-3 px-3 text-right">Conviction Score</th>
+                  </tr>
+                </thead>
+                <tbody id="live-radar-tbody" class="divide-y divide-slate-800/60 mono"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Live Session Execution Audit (Only Aug 31 2026) -->
+          <div class="glass-panel rounded-2xl p-6">
+            <div class="flex items-center justify-between pb-4 border-b border-slate-800">
+              <div class="flex items-center gap-2">
+                <i data-lucide="list-checks" class="w-5 h-5 text-emerald-400"></i>
+                <h2 class="text-lg font-bold text-white">Histori Deal Sesi Live Ini (Sejak 31 Agustus 2026)</h2>
+              </div>
+              <span class="text-xs text-slate-400 mono" id="live-session-deals-badge">0 Deals Selesai</span>
+            </div>
+
+            <div class="overflow-x-auto mt-4">
+              <table class="w-full text-left text-xs">
+                <thead>
+                  <tr class="border-b border-slate-800 text-slate-400 font-semibold tracking-wider uppercase text-[11px]">
+                    <th class="py-3 px-3">Pair</th>
+                    <th class="py-3 px-3">Waktu Buka</th>
+                    <th class="py-3 px-3">Waktu Tutup</th>
+                    <th class="py-3 px-3">Side</th>
+                    <th class="py-3 px-3">Entry ➔ Exit</th>
+                    <th class="py-3 px-3">Exit Reason</th>
+                    <th class="py-3 px-3 text-right">Profit USD</th>
+                  </tr>
+                </thead>
+                <tbody id="live-closed-tbody" class="divide-y divide-slate-800/60 mono"></tbody>
+              </table>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- RIGHT 4 COLS: EXECUTION CYCLE & STRATEGY LOGIC -->
+        <div class="lg:col-span-4 space-y-6">
+          
+          <!-- Next Candle Countdown -->
+          <div class="glass-panel rounded-2xl p-5 relative overflow-hidden">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-bold uppercase tracking-wider text-slate-400">Siklus Evaluasi Candle</span>
+              <span class="px-2 py-0.5 text-[10px] font-bold rounded bg-blue-500/10 text-blue-400 border border-blue-500/20">1H Candle</span>
+            </div>
+            <div class="mt-3 flex items-baseline justify-between">
+              <div class="text-2xl font-extrabold text-white mono" id="candle-countdown-sim">--m --s</div>
+              <span class="text-xs text-slate-400">sampai audit sinyal</span>
+            </div>
+            <div class="w-full bg-slate-800 h-1.5 rounded-full mt-3 overflow-hidden">
+              <div id="candle-progress-bar-sim" class="bg-gradient-to-r from-blue-500 to-cyan-400 h-full w-3/4 rounded-full transition-all duration-500"></div>
+            </div>
+            <div class="mt-4 pt-3 border-t border-slate-800 text-xs text-slate-400 space-y-1.5">
+              <div class="flex justify-between"><span>Base Timeframe:</span><strong class="text-slate-200">1 Jam (1h)</strong></div>
+              <div class="flex justify-between"><span>Macro Filter:</span><strong class="text-slate-200">4 Jam (4h Gate)</strong></div>
+              <div class="flex justify-between"><span>Leverage:</span><strong class="text-cyan-400">3.0x Isolated</strong></div>
+            </div>
+          </div>
+
+          <!-- Flowmetrix Daily PnL Heatmap Calendar (LIVE SESSION ONLY) -->
+          <div class="glass-panel rounded-2xl p-5 relative overflow-hidden">
+            <div class="flex items-center justify-between pb-3 border-b border-slate-800">
+              <div class="flex items-center gap-2">
+                <i data-lucide="calendar" class="w-4 h-4 text-blue-400"></i>
+                <span class="text-sm font-bold text-white">Daily P&L Tracker (Live Sesi)</span>
+              </div>
+              <span class="text-[10px] font-bold px-2 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20">31 Ags 2026 (Live Only)</span>
+            </div>
+
+            <div class="grid grid-cols-3 gap-2 mt-3 p-2.5 rounded-xl bg-[#0d111a] border border-slate-800 text-center text-xs">
+              <div>
+                <div class="text-[10px] text-slate-400 uppercase font-semibold">Sesi Hari Ini</div>
+                <div class="text-xs font-bold text-slate-200 mono mt-0.5" id="live-cal-month-pnl">$0.00 USD</div>
+              </div>
+              <div>
+                <div class="text-[10px] text-slate-400 uppercase font-semibold">Win Days</div>
+                <div class="text-xs font-bold text-slate-200 mono mt-0.5" id="live-cal-win-days">0d / 0d</div>
+              </div>
+              <div>
+                <div class="text-[10px] text-slate-400 uppercase font-semibold">Total Deals</div>
+                <div class="text-xs font-bold text-slate-200 mono mt-0.5" id="live-cal-deals">0 Deals</div>
+              </div>
+            </div>
+
+            <div class="grid grid-cols-7 gap-1 mt-4 text-center text-[10px] font-semibold text-slate-500 uppercase">
+              <div>M</div><div>T</div><div>W</div><div>T</div><div>F</div><div>S</div><div>S</div>
+            </div>
+            <div id="live-calendar-grid" class="grid grid-cols-7 gap-1.5 mt-2"></div>
+          </div>
+
+          <!-- Active Strategy Engine Specs -->
+          <div class="glass-panel rounded-2xl p-5 relative overflow-hidden">
+            <div class="flex items-center justify-between pb-3 border-b border-slate-800">
+              <div class="flex items-center gap-2">
+                <i data-lucide="sliders" class="w-4 h-4 text-purple-400"></i>
+                <span class="text-sm font-bold text-white">Spek Logika ApexDualAlpha</span>
+              </div>
+              <span class="text-xs font-semibold text-emerald-400 mono">Growth Config</span>
+            </div>
+            <div class="space-y-3 mt-4 text-xs">
+              <div class="p-2.5 rounded-xl bg-[#0d111a] border border-slate-800/80">
+                <div class="text-[11px] font-bold text-emerald-400">LONG Alpha Logic</div>
+                <div class="text-slate-300 text-[11px] mt-1">Dip pullback pada discount zone saat 4H EMA Bullish. Min RSI: <span class="text-white font-mono font-bold">41.0</span></div>
+              </div>
+              <div class="p-2.5 rounded-xl bg-[#0d111a] border border-slate-800/80">
+                <div class="text-[11px] font-bold text-rose-400">SHORT Dynamic ATR Fade</div>
+                <div class="text-slate-300 text-[11px] mt-1">Rejection resistance ATR multiplier <span class="text-white font-mono font-bold">1.25x</span> + konfirmasi Volume Acceleration & Macro 4H Bearish.</div>
+              </div>
+              <div class="p-2.5 rounded-xl bg-[#0d111a] border border-slate-800/80">
+                <div class="text-[11px] font-bold text-blue-400">Proteksi & Exit</div>
+                <div class="text-slate-300 text-[11px] mt-1">Take Profit <span class="text-white font-mono font-bold">+16.1%</span>, Hard SL <span class="text-white font-mono font-bold">-29.7%</span>, Trailing offset 3.0%, Decay Cutoff 72h.</div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+
+      </div>
+
+    </div>
+
+    <!-- ========================================================================= -->
+    <!-- VIEW 2: 2.5Y BENCHMARK EXPLORER (AUDITED PERFORMANCE)                    -->
+    <!-- ========================================================================= -->
+    <div id="view-benchmark" class="hidden space-y-6">
+      
+      <!-- Mode Announcement Banner -->
+      <div class="p-4 rounded-2xl bg-gradient-to-r from-purple-950/40 via-[#0d111a] to-blue-950/30 border border-purple-500/30 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+        <div class="flex items-center gap-3">
+          <div class="p-2.5 rounded-xl bg-purple-500/20 text-purple-400 border border-purple-500/30">
+            <i data-lucide="database" class="w-5 h-5"></i>
+          </div>
+          <div>
+            <div class="flex items-center gap-2">
+              <span class="text-sm font-bold text-white uppercase tracking-wider">Historical Benchmark Explorer (2.5 Tahun | 2024 - 2026)</span>
+              <span class="px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-widest rounded bg-purple-500/20 text-purple-400 border border-purple-500/30">283 TRADES AUDITED</span>
+            </div>
+            <p class="text-xs text-slate-400 mt-0.5">
+              Hasil verifikasi kuantitatif out-of-sample pada data pasar riil Bybit Futures. <strong class="text-emerald-400">+269.34% Return Bersih</strong> dari modal mikro $25.00 USDT.
+            </p>
+          </div>
+        </div>
+        <div class="flex items-center gap-2 text-xs mono text-slate-300 bg-slate-900/80 px-3 py-1.5 rounded-lg border border-slate-800">
+          <i data-lucide="shield-check" class="w-3.5 h-3.5 text-cyan-400"></i>
+          <span>Overfitting Stress-Tested (6/6 Pass)</span>
+        </div>
+      </div>
+
+      <!-- ROW 1: BENCHMARK KPIS -->
+      <section class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        
+        <div class="glass-panel rounded-2xl p-5 relative overflow-hidden">
+          <div class="flex justify-between items-start">
+            <span class="text-xs font-semibold tracking-wider uppercase text-slate-400">Pertumbuhan Ekuitas (2.5Y)</span>
+            <div class="p-2 rounded-xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"><i data-lucide="trending-up" class="w-4 h-4"></i></div>
+          </div>
+          <div class="mt-3">
+            <div class="text-3xl font-extrabold text-white tracking-tight mono">$25.00 ➔ <span class="text-emerald-400">$92.34</span></div>
+            <div class="flex items-center gap-2 mt-2 text-xs">
+              <span class="text-slate-400">Net Return:</span><span class="text-emerald-400 font-bold mono bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20">+269.34%</span>
+            </div>
+          </div>
+          <div class="absolute bottom-0 left-0 right-0 h-1 bg-gradient-to-r from-emerald-500 to-cyan-500"></div>
+        </div>
+
+        <div class="glass-panel rounded-2xl p-5 relative overflow-hidden">
+          <div class="flex justify-between items-start">
+            <span class="text-xs font-semibold tracking-wider uppercase text-slate-400">Win Rate & Total Trades</span>
+            <div class="p-2 rounded-xl bg-blue-500/10 text-blue-400 border border-blue-500/20"><i data-lucide="award" class="w-4 h-4"></i></div>
+          </div>
+          <div class="mt-3">
+            <div class="text-3xl font-extrabold text-white tracking-tight mono">67.1% <span class="text-xs font-medium text-emerald-400 font-sans">(78.9% 1M)</span></div>
+            <div class="flex items-center gap-2 mt-2 text-xs text-slate-400">
+              <span>190 Wins / 93 Losses (283 Total)</span>
+            </div>
+          </div>
+          <div class="absolute bottom-0 left-0 right-0 h-1 bg-gradient-to-r from-blue-500 to-purple-500"></div>
+        </div>
+
+        <div class="glass-panel rounded-2xl p-5 relative overflow-hidden">
+          <div class="flex justify-between items-start">
+            <span class="text-xs font-semibold tracking-wider uppercase text-slate-400">Profit Factor & SQN</span>
+            <div class="p-2 rounded-xl bg-cyan-500/10 text-cyan-400 border border-cyan-500/20"><i data-lucide="bar-chart-2" class="w-4 h-4"></i></div>
+          </div>
+          <div class="mt-3">
+            <div class="text-3xl font-extrabold text-white tracking-tight mono">1.40 <span class="text-xs font-medium text-cyan-400 font-sans">(3.27 1M)</span></div>
+            <div class="flex items-center gap-2 mt-2 text-xs text-slate-400">
+              <span>SQN: <strong class="text-slate-200 mono">1.95</strong> | Sharpe: <strong class="text-slate-200 mono">1.34</strong></span>
+            </div>
+          </div>
+          <div class="absolute bottom-0 left-0 right-0 h-1 bg-gradient-to-r from-cyan-500 to-blue-500"></div>
+        </div>
+
+        <div class="glass-panel rounded-2xl p-5 relative overflow-hidden">
+          <div class="flex justify-between items-start">
+            <span class="text-xs font-semibold tracking-wider uppercase text-slate-400">Max Drawdown & Recovery</span>
+            <div class="p-2 rounded-xl bg-rose-500/10 text-rose-400 border border-rose-500/20"><i data-lucide="shield-alert" class="w-4 h-4"></i></div>
+          </div>
+          <div class="mt-3">
+            <div class="text-3xl font-extrabold text-slate-200 tracking-tight mono">29.27% <span class="text-xs font-normal text-slate-400 font-sans">(30 Hari)</span></div>
+            <div class="flex items-center gap-2 mt-2 text-xs text-slate-400">
+              <span>Pemulihan 7x lebih cepat dari Long-Only</span>
+            </div>
+          </div>
+          <div class="absolute bottom-0 left-0 right-0 h-1 bg-gradient-to-r from-rose-500 to-amber-500"></div>
+        </div>
+
+      </section>
+
+      <!-- ROW 2: INTERACTIVE EYE-CATCHING PORTFOLIO GROWTH LINE CHART -->
+      <section class="glass-panel rounded-2xl p-6 relative overflow-hidden">
+        
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-800">
+          <div>
+            <div class="flex items-center gap-2">
+              <i data-lucide="line-chart" class="w-5 h-5 text-emerald-400"></i>
+              <h2 class="text-lg font-bold text-white">Grafik Perkembangan Portofolio (Portfolio Growth Curve)</h2>
+            </div>
+            <p class="text-xs text-slate-400 mt-0.5">Pertumbuhan saldo kumulatif teruji dengan simulasi compounding & friction fee Bybit</p>
+          </div>
+
+          <!-- TIMEFRAME BUTTON SELECTORS -->
+          <div class="flex items-center bg-[#0d111a] p-1 rounded-xl border border-slate-800">
+            <button id="tf-24h" onclick="setTimeframe('24H')" class="px-3 py-1 text-xs font-bold rounded-lg transition-all text-slate-400 hover:text-white">24H</button>
+            <button id="tf-7d" onclick="setTimeframe('7D')" class="px-3 py-1 text-xs font-bold rounded-lg transition-all text-slate-400 hover:text-white">7D</button>
+            <button id="tf-30d" onclick="setTimeframe('30D')" class="px-3 py-1 text-xs font-bold rounded-lg transition-all text-slate-400 hover:text-white">30D</button>
+            <button id="tf-all" onclick="setTimeframe('ALL')" class="px-3 py-1 text-xs font-bold rounded-lg transition-all bg-blue-600 text-white shadow-md shadow-blue-600/30">ALL (2.5Y)</button>
+          </div>
+        </div>
+
+        <!-- Dynamic Metrics bar above chart -->
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4 p-3 rounded-xl bg-[#0d111a]/70 border border-slate-800/80 text-xs">
+          <div>
+            <span class="text-slate-400 text-[11px]">Modal Awal Periode:</span>
+            <div class="text-sm font-bold text-white mono mt-0.5" id="chart-start-val">$25.00 USDT</div>
+          </div>
+          <div>
+            <span class="text-slate-400 text-[11px]">Ekuitas Akhir:</span>
+            <div class="text-sm font-bold text-emerald-400 mono mt-0.5" id="chart-end-val">$92.34 USDT</div>
+          </div>
+          <div>
+            <span class="text-slate-400 text-[11px]">Net Return Periode:</span>
+            <div class="text-sm font-bold text-emerald-400 mono mt-0.5" id="chart-return-val">+269.34%</div>
+          </div>
+          <div>
+            <span class="text-slate-400 text-[11px]">Total Titik Eksekusi:</span>
+            <div class="text-sm font-bold text-cyan-400 mono mt-0.5" id="chart-points-val">283 Trades</div>
+          </div>
+        </div>
+
+        <!-- Canvas Container -->
+        <div class="h-80 w-full mt-4">
+          <canvas id="portfolioChart"></canvas>
+        </div>
+
+      </section>
+
+      <!-- ROW 3: BENCHMARK WORKSPACE (HEATMAP & TRADE LOG) -->
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+        <!-- LEFT 8 COLS: 283-TRADE AUDIT LOG TABLE -->
+        <div class="lg:col-span-8 space-y-6">
+          <div class="glass-panel rounded-2xl p-6 relative overflow-hidden">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-800">
+              <div>
+                <div class="flex items-center gap-2">
+                  <i data-lucide="history" class="w-5 h-5 text-cyan-400"></i>
+                  <h2 class="text-lg font-bold text-white">Log Audit Lengkap 283 Trades Benchmark</h2>
+                </div>
+                <p class="text-xs text-slate-400 mt-0.5">Telusuri seluruh rekam jejak trade historis dengan filter instan</p>
+              </div>
+              <div class="flex items-center gap-3">
+                <div class="relative">
+                  <i data-lucide="search" class="w-4 h-4 text-slate-400 absolute left-3 top-2.5"></i>
+                  <input type="text" id="bm-search" oninput="filterBmTrades()" placeholder="Cari koin atau tag..." class="bg-[#0d111a] border border-slate-800 rounded-lg pl-9 pr-3 py-1.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-blue-500 w-40 sm:w-52" />
+                </div>
+                <select id="bm-side-filter" onchange="filterBmTrades()" class="bg-[#0d111a] border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-300 focus:outline-none focus:border-blue-500">
+                  <option value="all">Semua Side</option>
+                  <option value="long">Long Only</option>
+                  <option value="short">Short Only</option>
+                  <option value="win">Win Only</option>
+                  <option value="loss">Loss Only</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="overflow-x-auto mt-4">
+              <table class="w-full text-left text-xs">
+                <thead>
+                  <tr class="border-b border-slate-800 text-slate-400 font-semibold tracking-wider uppercase text-[11px]">
+                    <th class="py-3 px-3">Symbol</th>
+                    <th class="py-3 px-3">Waktu Buka</th>
+                    <th class="py-3 px-3">Side</th>
+                    <th class="py-3 px-3">Entry Price</th>
+                    <th class="py-3 px-3">Exit Price</th>
+                    <th class="py-3 px-3">Exit Reason</th>
+                    <th class="py-3 px-3 text-right">Net Profit</th>
+                  </tr>
+                </thead>
+                <tbody id="bm-history-tbody" class="divide-y divide-slate-800/60 mono"></tbody>
+              </table>
+            </div>
+
+            <div class="flex items-center justify-between pt-4 border-t border-slate-800 text-xs text-slate-400 mt-4">
+              <span id="bm-pagination-info">Showing 1 to 10 of 283 trades</span>
+              <div class="flex items-center gap-2">
+                <button onclick="prevBmPage()" class="px-3 py-1 rounded bg-[#0d111a] hover:bg-slate-800 border border-slate-800 text-slate-300 disabled:opacity-40" id="bm-btn-prev">Prev</button>
+                <button onclick="nextBmPage()" class="px-3 py-1 rounded bg-[#0d111a] hover:bg-slate-800 border border-slate-800 text-slate-300 disabled:opacity-40" id="bm-btn-next">Next</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- RIGHT 4 COLS: FLOWMETRIX CALENDAR & HOW TRADES ENDED -->
+        <div class="lg:col-span-4 space-y-6">
+          
+          <!-- Flowmetrix Daily PnL Heatmap -->
+          <div class="glass-panel rounded-2xl p-5 relative overflow-hidden">
+            <div class="flex items-center justify-between pb-3 border-b border-slate-800">
+              <div class="flex items-center gap-2">
+                <i data-lucide="calendar" class="w-4 h-4 text-emerald-400"></i>
+                <span class="text-sm font-bold text-white">Daily P&L Heatmap (Flowmetrix)</span>
+              </div>
+              <span class="text-xs font-semibold text-slate-400 mono">Agustus 2026</span>
+            </div>
+
+            <div class="grid grid-cols-3 gap-2 mt-3 p-2.5 rounded-xl bg-[#0d111a] border border-slate-800 text-center text-xs">
+              <div>
+                <div class="text-[10px] text-slate-400 uppercase font-semibold">Bulan Ini</div>
+                <div class="text-xs font-bold text-emerald-400 mono mt-0.5">+$7.84 USD</div>
+              </div>
+              <div>
+                <div class="text-[10px] text-slate-400 uppercase font-semibold">Win Days</div>
+                <div class="text-xs font-bold text-slate-200 mono mt-0.5">12d / 4d</div>
+              </div>
+              <div>
+                <div class="text-[10px] text-slate-400 uppercase font-semibold">Total Deals</div>
+                <div class="text-xs font-bold text-slate-200 mono mt-0.5">19 Deals</div>
+              </div>
+            </div>
+
+            <div class="grid grid-cols-7 gap-1 mt-4 text-center text-[10px] font-semibold text-slate-500 uppercase">
+              <div>M</div><div>T</div><div>W</div><div>T</div><div>F</div><div>S</div><div>S</div>
+            </div>
+            <div id="bm-calendar-grid" class="grid grid-cols-7 gap-1.5 mt-2"></div>
+          </div>
+
+          <!-- How Trades Ended Analytics -->
+          <div class="glass-panel rounded-2xl p-5 relative overflow-hidden">
+            <div class="flex items-center justify-between pb-3 border-b border-slate-800">
+              <div class="flex items-center gap-2">
+                <i data-lucide="pie-chart" class="w-4 h-4 text-purple-400"></i>
+                <span class="text-sm font-bold text-white">Bagaimana Posisi Ditutup</span>
+              </div>
+              <span class="text-xs font-semibold text-slate-400">283 Total</span>
+            </div>
+
+            <div class="space-y-3 mt-4 text-xs">
+              <div>
+                <div class="flex justify-between font-semibold mb-1">
+                  <span class="text-emerald-400">Take Profit Runway (ROI)</span>
+                  <span class="text-slate-200 mono">174 (61.5%)</span>
+                </div>
+                <div class="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
+                  <div class="bg-emerald-500 h-full rounded-full" style="width: 61.5%"></div>
+                </div>
+              </div>
+
+              <div>
+                <div class="flex justify-between font-semibold mb-1">
+                  <span class="text-cyan-400">Explosive Dump TP (Short)</span>
+                  <span class="text-slate-200 mono">31 (11.0%)</span>
+                </div>
+                <div class="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
+                  <div class="bg-cyan-500 h-full rounded-full" style="width: 11.0%"></div>
+                </div>
+              </div>
+
+              <div>
+                <div class="flex justify-between font-semibold mb-1">
+                  <span class="text-blue-400">Dynamic Trailing Stop</span>
+                  <span class="text-slate-200 mono">15 (5.3%)</span>
+                </div>
+                <div class="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
+                  <div class="bg-blue-500 h-full rounded-full" style="width: 5.3%"></div>
+                </div>
+              </div>
+
+              <div>
+                <div class="flex justify-between font-semibold mb-1">
+                  <span class="text-amber-400">Time-Decay Stale Cutoff</span>
+                  <span class="text-slate-200 mono">47 (16.6%)</span>
+                </div>
+                <div class="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
+                  <div class="bg-amber-500 h-full rounded-full" style="width: 16.6%"></div>
+                </div>
+              </div>
+
+              <div>
+                <div class="flex justify-between font-semibold mb-1">
+                  <span class="text-rose-400">Hard Stop Loss</span>
+                  <span class="text-slate-200 mono">16 (5.6%)</span>
+                </div>
+                <div class="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
+                  <div class="bg-rose-500 h-full rounded-full" style="width: 5.6%"></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="mt-4 pt-3 border-t border-slate-800 text-[11px] text-slate-400 flex justify-between">
+              <span>Avg Win: <strong class="text-emerald-400 mono">+6.05%</strong></span>
+              <span>Avg Loss: <strong class="text-rose-400 mono">-8.16%</strong></span>
+            </div>
+          </div>
+
+        </div>
+
+      </div>
+
+    </div>
+
+    <!-- ========================================================================= -->
+    <!-- VIEW 3: REAL LIVE TRADING (STANDBY & SAFETY GATEWAY)                     -->
+    <!-- ========================================================================= -->
+    <div id="view-real-trading" class="hidden space-y-6">
+      
+      <!-- Standby Warning Banner -->
+      <div class="p-5 rounded-2xl bg-gradient-to-r from-amber-950/40 via-[#0d111a] to-rose-950/30 border border-amber-500/40 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+        <div class="flex items-center gap-3">
+          <div class="p-3 rounded-xl bg-amber-500/20 text-amber-400 border border-amber-500/30">
+            <i data-lucide="shield-alert" class="w-6 h-6"></i>
+          </div>
+          <div>
+            <div class="flex items-center gap-2">
+              <span class="text-base font-bold text-white uppercase tracking-wider">Live Trading Asli (Mainnet Real Funds)</span>
+              <span class="px-2.5 py-0.5 text-[10px] font-extrabold uppercase tracking-widest rounded bg-amber-500/20 text-amber-400 border border-amber-500/30">DISARMED / STANDBY</span>
+            </div>
+            <p class="text-xs text-slate-300 mt-1 max-w-2xl">
+              Trading dengan modal uang asli saat ini <strong class="text-amber-300">SENGAJA BELUM DIAKTIFKAN</strong> untuk menjamin keamanan dana sampai Anda siap melakukan aktivasi. Semua eksekusi berjalan 100% aman di lingkungan Simulasi Dry-Run.
+            </p>
+          </div>
+        </div>
+        <div class="px-4 py-2 rounded-xl bg-slate-900 border border-slate-800 text-xs mono text-slate-300">
+          <div class="text-[10px] text-slate-500 uppercase">Modal Nyata Terpasang</div>
+          <div class="text-base font-bold text-white mt-0.5">$0.00 USDT</div>
+        </div>
+      </div>
+
+      <!-- Real Mode Pre-Flight Safety Checklist -->
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        
+        <div class="glass-panel rounded-2xl p-6 space-y-4">
+          <div class="flex items-center gap-2 pb-3 border-b border-slate-800">
+            <i data-lucide="check-circle" class="w-5 h-5 text-emerald-400"></i>
+            <h3 class="text-base font-bold text-white">Pre-Flight Security Checklist</h3>
+          </div>
+          
+          <div class="space-y-3 text-xs">
+            <div class="p-3 rounded-xl bg-[#0d111a] border border-slate-800 flex items-center justify-between">
+              <div>
+                <div class="font-bold text-white">1. Bybit Real Mainnet API Keys</div>
+                <div class="text-slate-400 text-[11px]">Kunci API live belum dimasukkan ke config real.</div>
+              </div>
+              <span class="px-2.5 py-1 text-[10px] font-bold rounded bg-blue-500/10 text-blue-400 border border-blue-500/20">PROTECTED</span>
+            </div>
+
+            <div class="p-3 rounded-xl bg-[#0d111a] border border-slate-800 flex items-center justify-between">
+              <div>
+                <div class="font-bold text-white">2. Margin Mode Isolation</div>
+                <div class="text-slate-400 text-[11px]">Terkunci pada Isolated Margin 3.0x (Mencegah spillover dompet).</div>
+              </div>
+              <span class="px-2.5 py-1 text-[10px] font-bold rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">READY</span>
+            </div>
+
+            <div class="p-3 rounded-xl bg-[#0d111a] border border-slate-800 flex items-center justify-between">
+              <div>
+                <div class="font-bold text-white">3. Max Stake Cap Guardrail</div>
+                <div class="text-slate-400 text-[11px]">Maksimal 50% saldo ($12.50 per trade) untuk akun mikro $25.</div>
+              </div>
+              <span class="px-2.5 py-1 text-[10px] font-bold rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">READY</span>
+            </div>
+
+            <div class="p-3 rounded-xl bg-[#0d111a] border border-slate-800 flex items-center justify-between">
+              <div>
+                <div class="font-bold text-white">4. Daily Drawdown Emergency Kill Switch</div>
+                <div class="text-slate-400 text-[11px]">Otomatis mematikan order jika kerugian harian mencapai -2.00%.</div>
+              </div>
+              <span class="px-2.5 py-1 text-[10px] font-bold rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">ARMED</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="glass-panel rounded-2xl p-6 space-y-4">
+          <div class="flex items-center gap-2 pb-3 border-b border-slate-800">
+            <i data-lucide="key" class="w-5 h-5 text-amber-400"></i>
+            <h3 class="text-base font-bold text-white">Panduan Aktivasi Live Trading Asli</h3>
+          </div>
+          
+          <p class="text-xs text-slate-300 leading-relaxed">
+            Ketika Anda sudah merasa puas dan yakin dengan pengujian pada tab <strong class="text-blue-400">Simulasi Live</strong> dan tab <strong class="text-purple-400">2.5Y Benchmark</strong>, langkah aktivasi trading asli adalah:
+          </p>
+
+          <ol class="list-decimal list-inside space-y-2 text-xs text-slate-400">
+            <li>Buat Sub-Account baru di akun Bybit Anda khusus untuk Bot Apex.</li>
+            <li>Transfer saldo modal awal (<strong class="text-white">$25.00 USDT</strong>) ke Unified Trading / Futures Wallet sub-account tersebut.</li>
+            <li>Generate API Key & Secret dengan izin: <code class="text-cyan-400">Read-Write Contract/Futures Trading</code> (Nonaktifkan izin Withdrawal).</li>
+            <li>Minta Claude untuk menghubungkan API Key ke file <code class="text-slate-300 font-mono">user_data/config_real.json</code>.</li>
+          </ol>
+
+          <div class="pt-2">
+            <div class="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs text-amber-300">
+              <i data-lucide="info" class="w-4 h-4 inline mr-1 text-amber-400"></i>
+              Sistem akan selalu meminta konfirmasi eksplisit dari Anda sebelum meletakkan order pertama dengan uang asli.
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+    </div>
+
+  </main>
+
+  <!-- JAVASCRIPT LOGIC & CHART.JS ENGINE -->
+  <script>
+    let currentView = 'live_sim';
+    let currentTf = 'ALL';
+    let rawData = null;
+    let portfolioChart = null;
+    let bmTrades = [];
+    let filteredBmTrades = [];
+    let bmCurrentPage = 1;
+    const bmPageSize = 10;
+    const API_URL = 'http://127.0.0.1:5050/api/data';
+
+    // Clock & Cycle Countdown
+    function updateClock() {
+      const now = new Date();
+      const wibOptions = { timeZone: 'Asia/Jakarta', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false };
+      const timeStr = new Intl.DateTimeFormat('id-ID', wibOptions).format(now);
+      const clockEl = document.getElementById('wib-clock');
+      if (clockEl) clockEl.textContent = timeStr;
+      
+      const minutes = 59 - now.getMinutes();
+      const seconds = 59 - now.getSeconds();
+      const cdSim = document.getElementById('candle-countdown-sim');
+      if (cdSim) cdSim.textContent = `${minutes}m ${seconds}s`;
+      
+      const progress = ((now.getMinutes() * 60 + now.getSeconds()) / 3600) * 100;
+      const pbSim = document.getElementById('candle-progress-bar-sim');
+      if (pbSim) pbSim.style.width = `${progress}%`;
+    }
+    setInterval(updateClock, 1000);
+    updateClock();
+
+    // VIEW SWITCHER (3 DISTINCT MODES)
+    function switchView(viewName) {
+      currentView = viewName;
+      
+      const vSim = document.getElementById('view-live-sim');
+      const vBm = document.getElementById('view-benchmark');
+      const vReal = document.getElementById('view-real-trading');
+      
+      const btnSim = document.getElementById('nav-live-sim');
+      const btnBm = document.getElementById('nav-benchmark');
+      const btnReal = document.getElementById('nav-real-trading');
+      const topBadge = document.getElementById('top-badge-status');
+
+      // Reset tabs
+      [btnSim, btnBm, btnReal].forEach(b => {
+        b.className = 'tab-inactive flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all';
+      });
+
+      // Hide all views
+      vSim.classList.add('hidden');
+      vBm.classList.add('hidden');
+      vReal.classList.add('hidden');
+
+      if (viewName === 'live_sim') {
+        vSim.classList.remove('hidden');
+        btnSim.className = 'tab-active flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all';
+        if (topBadge) topBadge.textContent = 'Simulasi Live Bybit 3x';
+      } else if (viewName === 'benchmark') {
+        vBm.classList.remove('hidden');
+        btnBm.className = 'tab-active flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all';
+        if (topBadge) topBadge.textContent = '2.5Y Benchmark Audited';
+        // Render chart when benchmark view is shown
+        renderChart(currentTf);
+        renderBmCalendar();
+      } else if (viewName === 'real_trading') {
+        vReal.classList.remove('hidden');
+        btnReal.className = 'tab-active flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all';
+        if (topBadge) topBadge.textContent = 'Trading Asli: Standby';
+      }
+
+      if (window.lucide) lucide.createIcons();
+    }
+
+    // FETCH API DATA
+    async function fetchData() {
+      const icon = document.getElementById('refresh-icon');
+      if (icon) icon.classList.add('animate-spin');
+
+      try {
+        const res = await fetch(API_URL);
+        rawData = await res.json();
+        
+        // Render Live Simulation Tab & Live Calendar
+        renderLiveSimulationData(rawData.live_simulation, rawData.market_radar);
+        renderLiveCalendar(rawData.live_simulation);
+        
+        // Populate Benchmark Trades
+        bmTrades = rawData.benchmark?.trades || [];
+        filterBmTrades();
+
+        // If benchmark view is active, update chart & benchmark calendar
+        if (currentView === 'benchmark') {
+          renderChart(currentTf);
+          renderBmCalendar();
+        }
+      } catch (err) {
+        console.warn('Dashboard bridge fetch warning:', err);
+      } finally {
+        if (icon) icon.classList.remove('animate-spin');
+        if (window.lucide) lucide.createIcons();
+      }
+    }
+
+    // RENDER LIVE SIMULATION DATA
+    function renderLiveSimulationData(liveData, radarList) {
+      if (!liveData) return;
+
+      // KPIs
+      document.getElementById('live-balance').innerHTML = `$${Number(liveData.wallet_balance || 25).toFixed(2)} <span class="text-xs font-medium text-slate-400">USDT</span>`;
+      document.getElementById('live-free').textContent = `$${Number(liveData.free_collateral || 25).toFixed(2)} USDT`;
+      
+      const sessionPnl = liveData.session_pnl_usd || 0;
+      const sessionPct = liveData.session_pnl_pct || 0;
+      const pnlColor = sessionPnl >= 0 ? 'text-emerald-400' : 'text-rose-400';
+      document.getElementById('live-session-pnl').innerHTML = `<span class="${pnlColor}">${sessionPnl >= 0 ? '+' : ''}$${sessionPnl.toFixed(2)}</span> <span class="text-xs font-medium text-slate-400">(${sessionPct >= 0 ? '+' : ''}${sessionPct.toFixed(2)}%)</span>`;
+      
+      const closedCount = liveData.closed_trades?.length || 0;
+      document.getElementById('live-closed-count').textContent = `${closedCount} Deals Selesai`;
+      document.getElementById('live-session-deals-badge').textContent = `${closedCount} Deals Selesai Hari Ini`;
+
+      const openTrades = liveData.open_trades || [];
+      document.getElementById('live-open-slots').textContent = `${openTrades.length} / 2 Slots`;
+      document.getElementById('live-open-badge').textContent = `${openTrades.length} Open / 2 Max`;
+
+      // Render Open Trades Container
+      const openContainer = document.getElementById('live-open-trades-container');
+      if (openTrades.length === 0) {
+        openContainer.innerHTML = `
+          <div class="p-8 text-center rounded-xl bg-[#0d111a]/50 border border-slate-800/60 flex flex-col items-center justify-center">
+            <div class="h-12 w-12 rounded-full bg-blue-500/10 flex items-center justify-center text-blue-400 mb-3">
+              <i data-lucide="radar" class="w-6 h-6 animate-spin" style="animation-duration: 6s;"></i>
+            </div>
+            <div class="text-sm font-bold text-slate-200">Radar Sinyal Sedang Memindai Pasar Real-Time</div>
+            <p class="text-xs text-slate-400 max-w-md mt-1">
+              Bot aktif memonitor penutupan candle 1H pada 4 koin (ETH, ADA, LINK, SOL). Saat ini kondisi pasar belum menyentuh level diskon ekstrem atau rejection ATR untuk membuka posisi baru.
+            </p>
+          </div>
+        `;
+      } else {
+        let html = '';
+        openTrades.forEach(t => {
+          const isShort = t.is_short;
+          const sideBadge = isShort ? 
+            '<span class="px-2 py-0.5 text-[10px] font-bold rounded bg-rose-500/10 text-rose-400 border border-rose-500/20">SHORT 3.0x</span>' :
+            '<span class="px-2 py-0.5 text-[10px] font-bold rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">LONG 3.0x</span>';
+          const pnl = (t.profit_ratio || 0) * 100 * 3.0;
+          const pnlColor = pnl >= 0 ? 'text-emerald-400' : 'text-rose-400';
+
+          html += `
+            <div class="p-4 rounded-xl bg-[#0d111a] border border-slate-800 space-y-3 mb-3">
+              <div class="flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                  <span class="font-bold text-white">${t.pair}</span>
+                  ${sideBadge}
+                </div>
+                <div class="text-right">
+                  <span class="text-xs font-bold ${pnlColor} mono">${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)}%</span>
+                </div>
+              </div>
+              <div class="grid grid-cols-3 gap-2 text-xs mono text-slate-400">
+                <div>Entry: <strong class="text-slate-200">$${Number(t.open_rate).toFixed(4)}</strong></div>
+                <div>Mark: <strong class="text-slate-200">$${Number(t.close_rate || t.open_rate).toFixed(4)}</strong></div>
+                <div>SL: <strong class="text-rose-400">-29.7%</strong> | TP: <strong class="text-emerald-400">+16.1%</strong></div>
+              </div>
+              <div>
+                <div class="flex justify-between text-[10px] text-slate-400 mb-1">
+                  <span class="text-rose-400">Stop Loss (-29.7%)</span>
+                  <span class="text-slate-300">Trajectory Bar</span>
+                  <span class="text-emerald-400">Take Profit (+16.1%)</span>
+                </div>
+                <div class="w-full bg-slate-800 h-2 rounded-full overflow-hidden flex">
+                  <div class="bg-rose-500 h-full" style="width: 35%"></div>
+                  <div class="bg-blue-500 h-full" style="width: 30%"></div>
+                  <div class="bg-emerald-500 h-full" style="width: 35%"></div>
+                </div>
+              </div>
+            </div>
+          `;
+        });
+        openContainer.innerHTML = html;
+      }
+
+      // Render Radar Table
+      const radarTbody = document.getElementById('live-radar-tbody');
+      if (radarTbody && radarList) {
+        let rHtml = '';
+        radarList.forEach(r => {
+          const changeColor = r.change_24h >= 0 ? 'text-emerald-400' : 'text-rose-400';
+          rHtml += `
+            <tr class="hover:bg-slate-800/30 transition-colors">
+              <td class="py-3 px-3 font-bold text-white">${r.pair.replace(':USDT', '')}</td>
+              <td class="py-3 px-3 text-slate-200">$${Number(r.mark_price).toFixed(2)}</td>
+              <td class="py-3 px-3 font-semibold ${changeColor}">${r.change_24h >= 0 ? '+' : ''}${r.change_24h}%</td>
+              <td class="py-3 px-3"><span class="text-slate-300">RSI ${r.rsi_1h}</span> <span class="text-slate-500 text-[10px]">(&lt;${r.rsi_thresh})</span></td>
+              <td class="py-3 px-3"><span class="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[10px] font-semibold">${r.gate_4h}</span></td>
+              <td class="py-3 px-3 text-right">
+                <div class="flex items-center justify-end gap-2">
+                  <span class="font-bold text-cyan-400">${r.conviction}%</span>
+                  <div class="w-12 bg-slate-800 h-1.5 rounded-full overflow-hidden">
+                    <div class="bg-cyan-400 h-full rounded-full" style="width: ${r.conviction}%"></div>
+                  </div>
+                </div>
+              </td>
+            </tr>
+          `;
+        });
+        radarTbody.innerHTML = rHtml;
+      }
+
+      // Render Live Closed Trades Table (Strictly Session Aug 31)
+      const closedTbody = document.getElementById('live-closed-tbody');
+      const closedTrades = liveData.closed_trades || [];
+      if (closedTbody) {
+        if (closedTrades.length === 0) {
+          closedTbody.innerHTML = `
+            <tr>
+              <td colspan="7" class="py-8 text-center text-slate-500">
+                Belum ada trade yang ditutup pada sesi live hari ini (31 Agustus 2026). Bot baru saja diaktifkan dan sedang memindai peluang.
+              </td>
+            </tr>
+          `;
+        } else {
+          let cHtml = '';
+          closedTrades.forEach(t => {
+            const isShort = t.is_short;
+            const sideBadge = isShort ? 
+              '<span class="px-2 py-0.5 text-[10px] font-bold rounded bg-rose-500/10 text-rose-400 border border-rose-500/20">SHORT 3x</span>' :
+              '<span class="px-2 py-0.5 text-[10px] font-bold rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">LONG 3x</span>';
+            const pPct = ((t.profit_ratio || 0) * 100 * 3.0);
+            const pUsd = t.profit_abs || 0;
+            const pColor = pPct >= 0 ? 'text-emerald-400' : 'text-rose-400';
+
+            cHtml += `
+              <tr class="hover:bg-slate-800/30 transition-colors">
+                <td class="py-3 px-3 font-bold text-white">${t.pair}</td>
+                <td class="py-3 px-3 text-slate-400">${(t.open_date || '').replace('T', ' ').slice(5, 16)}</td>
+                <td class="py-3 px-3 text-slate-400">${(t.close_date || '').replace('T', ' ').slice(5, 16)}</td>
+                <td class="py-3 px-3">${sideBadge}</td>
+                <td class="py-3 px-3 text-slate-300">$${Number(t.open_rate).toFixed(4)} ➔ $${Number(t.close_rate).toFixed(4)}</td>
+                <td class="py-3 px-3"><span class="px-2 py-0.5 rounded bg-slate-800 text-slate-300 text-[10px] border border-slate-700">${t.exit_reason || 'ROI TP'}</span></td>
+                <td class="py-3 px-3 text-right font-bold ${pColor}">
+                  ${pPct >= 0 ? '+' : ''}${pPct.toFixed(2)}% <span class="text-[11px] font-normal text-slate-400">(${pUsd >= 0 ? '+' : ''}$${pUsd.toFixed(2)})</span>
+                </td>
+              </tr>
+            `;
+          });
+          closedTbody.innerHTML = cHtml;
+        }
+      }
+    }
+
+    // TIMEFRAME SWITCHER FOR PORTFOLIO CHART (24H, 7D, 30D, ALL)
+    function setTimeframe(tf) {
+      currentTf = tf;
+      ['24h', '7d', '30d', 'all'].forEach(id => {
+        const btn = document.getElementById(`tf-${id}`);
+        if (btn) {
+          btn.className = (id.toUpperCase() === tf) ? 
+            'px-3 py-1 text-xs font-bold rounded-lg transition-all bg-blue-600 text-white shadow-md shadow-blue-600/30' :
+            'px-3 py-1 text-xs font-bold rounded-lg transition-all text-slate-400 hover:text-white';
+        }
+      });
+      renderChart(tf);
+    }
+
+    // RENDER CHART.JS PORTFOLIO LINE CHART
+    function renderChart(tf) {
+      if (!rawData?.benchmark?.equity_curves) return;
+
+      const curveData = rawData.benchmark.equity_curves[tf] || rawData.benchmark.equity_curves['ALL'] || [];
+      if (curveData.length === 0) return;
+
+      const labels = curveData.map(d => d.time);
+      const values = curveData.map(d => d.equity);
+
+      const startVal = values[0] || 25.0;
+      const endVal = values[values.length - 1] || 25.0;
+      const returnPct = ((endVal - startVal) / startVal) * 100;
+
+      // Update Chart Summary Cards
+      document.getElementById('chart-start-val').textContent = `$${startVal.toFixed(2)} USDT`;
+      document.getElementById('chart-end-val').textContent = `$${endVal.toFixed(2)} USDT`;
+      document.getElementById('chart-return-val').textContent = `${returnPct >= 0 ? '+' : ''}${returnPct.toFixed(2)}%`;
+      document.getElementById('chart-points-val').textContent = `${curveData.length} Titik Eksekusi`;
+
+      const ctx = document.getElementById('portfolioChart');
+      if (!ctx) return;
+
+      if (portfolioChart) {
+        portfolioChart.destroy();
+      }
+
+      // Create Gradient
+      const chartCtx = ctx.getContext('2d');
+      const gradient = chartCtx.createLinearGradient(0, 0, 0, 300);
+      gradient.addColorStop(0, 'rgba(16, 185, 129, 0.25)');
+      gradient.addColorStop(1, 'rgba(16, 185, 129, 0.0)');
+
+      portfolioChart = new Chart(chartCtx, {
+        type: 'line',
+        data: {
+          labels: labels,
+          datasets: [{
+            label: 'Portofolio Equity ($)',
+            data: values,
+            borderColor: '#10b981',
+            borderWidth: 2.5,
+            pointRadius: curveData.length > 50 ? 0 : 3,
+            pointHoverRadius: 6,
+            pointBackgroundColor: '#10b981',
+            pointBorderColor: '#ffffff',
+            pointBorderWidth: 2,
+            backgroundColor: gradient,
+            fill: true,
+            tension: 0.35
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          interaction: {
+            mode: 'index',
+            intersect: false,
+          },
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              backgroundColor: '#0d111a',
+              titleColor: '#94a3b8',
+              bodyColor: '#ffffff',
+              borderColor: '#1e293b',
+              borderWidth: 1,
+              padding: 12,
+              displayColors: false,
+              callbacks: {
+                title: function(items) {
+                  return items[0]?.label || '';
+                },
+                label: function(item) {
+                  const val = Number(item.raw).toFixed(2);
+                  const pnl = (((val - startVal) / startVal) * 100).toFixed(2);
+                  return `Saldo: $${val} USDT (${pnl >= 0 ? '+' : ''}${pnl}%)`;
+                }
+              }
+            }
+          },
+          scales: {
+            x: {
+              grid: { color: 'rgba(255, 255, 255, 0.04)' },
+              ticks: {
+                color: '#64748b',
+                maxTicksLimit: 8,
+                font: { family: 'JetBrains Mono', size: 10 }
+              }
+            },
+            y: {
+              grid: { color: 'rgba(255, 255, 255, 0.04)' },
+              ticks: {
+                color: '#64748b',
+                font: { family: 'JetBrains Mono', size: 10 },
+                callback: function(v) { return '$' + v; }
+              }
+            }
+          }
+        }
+      });
+    }
+
+    // BENCHMARK AUDIT LOG FILTER & PAGINATION
+    function filterBmTrades() {
+      const search = (document.getElementById('bm-search')?.value || '').toLowerCase();
+      const side = document.getElementById('bm-side-filter')?.value || 'all';
+
+      filteredBmTrades = bmTrades.filter(t => {
+        const pair = (t.pair || '').toLowerCase();
+        const tag = (t.enter_tag || t.exit_reason || '').toLowerCase();
+        const matchesSearch = pair.includes(search) || tag.includes(search);
+
+        const isShort = t.is_short;
+        const profit = t.profit_ratio || t.profit_abs || 0;
+
+        if (side === 'long' && isShort) return false;
+        if (side === 'short' && !isShort) return false;
+        if (side === 'win' && profit <= 0) return false;
+        if (side === 'loss' && profit > 0) return false;
+
+        return matchesSearch;
+      });
+
+      bmCurrentPage = 1;
+      renderBmTable();
+    }
+
+    function renderBmTable() {
+      const tbody = document.getElementById('bm-history-tbody');
+      if (!tbody) return;
+
+      const start = (bmCurrentPage - 1) * bmPageSize;
+      const end = start + bmPageSize;
+      const pageData = filteredBmTrades.slice(start, end);
+
+      if (pageData.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" class="py-8 text-center text-slate-500">Tidak ada trade yang cocok dengan filter pencarian</td></tr>';
+        document.getElementById('bm-pagination-info').textContent = 'Showing 0 of 0 trades';
+        return;
+      }
+
+      let html = '';
+      pageData.forEach(t => {
+        const isShort = t.is_short;
+        const sideBadge = isShort ? 
+          '<span class="px-2 py-0.5 text-[10px] font-bold rounded bg-rose-500/10 text-rose-400 border border-rose-500/20">SHORT 3x</span>' :
+          '<span class="px-2 py-0.5 text-[10px] font-bold rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">LONG 3x</span>';
+
+        const profitPct = ((t.profit_ratio || 0) * 100 * 3.0);
+        const profitUsd = t.profit_abs || 0;
+        const profitColor = profitPct >= 0 ? 'text-emerald-400' : 'text-rose-400';
+
+        const exitReason = t.exit_reason || 'ROI Target TP';
+        let exitTagBadge = `<span class="px-2 py-0.5 text-[10px] font-semibold rounded bg-slate-800 text-slate-300 border border-slate-700">${exitReason}</span>`;
+        if (exitReason.includes('dump') || exitReason.includes('roi')) {
+          exitTagBadge = `<span class="px-2 py-0.5 text-[10px] font-semibold rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">${exitReason}</span>`;
+        } else if (exitReason.includes('stale') || exitReason.includes('decay')) {
+          exitTagBadge = `<span class="px-2 py-0.5 text-[10px] font-semibold rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">Time Cutoff</span>`;
+        }
+
+        const openDate = (t.open_date || '').replace('T', ' ').slice(5, 16);
+
+        html += `
+          <tr class="hover:bg-slate-800/30 transition-colors">
+            <td class="py-3 px-3 font-bold text-white">${t.pair}</td>
+            <td class="py-3 px-3 text-slate-400">${openDate}</td>
+            <td class="py-3 px-3">${sideBadge}</td>
+            <td class="py-3 px-3 text-slate-300">$${Number(t.open_rate).toFixed(4)}</td>
+            <td class="py-3 px-3 text-slate-300">$${Number(t.close_rate).toFixed(4)}</td>
+            <td class="py-3 px-3">${exitTagBadge}</td>
+            <td class="py-3 px-3 text-right font-bold ${profitColor}">
+              ${profitPct >= 0 ? '+' : ''}${profitPct.toFixed(2)}% <span class="text-[11px] font-normal text-slate-400">(${profitUsd >= 0 ? '+' : ''}$${profitUsd.toFixed(2)})</span>
+            </td>
+          </tr>
+        `;
+      });
+
+      tbody.innerHTML = html;
+      document.getElementById('bm-pagination-info').textContent = `Showing ${start + 1} to ${Math.min(end, filteredBmTrades.length)} of ${filteredBmTrades.length} trades`;
+      document.getElementById('bm-btn-prev').disabled = bmCurrentPage === 1;
+      document.getElementById('bm-btn-next').disabled = end >= filteredBmTrades.length;
+    }
+
+    function prevBmPage() {
+      if (bmCurrentPage > 1) {
+        bmCurrentPage--;
+        renderBmTable();
+      }
+    }
+
+    function nextBmPage() {
+      if (bmCurrentPage * bmPageSize < filteredBmTrades.length) {
+        bmCurrentPage++;
+        renderBmTable();
+      }
+    }
+
+    // LIVE CALENDAR TRACKER (STRICTLY DATA SESI LIVE 31 AGUSTUS 2026)
+    function renderLiveCalendar(liveData) {
+      const grid = document.getElementById('live-calendar-grid');
+      if (!grid || !liveData) return;
+
+      const summary = liveData.session_summary || {};
+      const sessionPnl = summary.session_pnl_usd || 0.0;
+      const winDays = summary.win_days_count || 0;
+      const lossDays = summary.loss_days_count || 0;
+      const totalDeals = summary.closed_count || 0;
+      const dailyMap = summary.daily_map || {};
+
+      const pnlColor = sessionPnl > 0 ? 'text-emerald-400' : (sessionPnl < 0 ? 'text-rose-400' : 'text-slate-200');
+      document.getElementById('live-cal-month-pnl').innerHTML = `<span class="${pnlColor}">${sessionPnl > 0 ? '+' : ''}$${sessionPnl.toFixed(2)} USD</span>`;
+      document.getElementById('live-cal-win-days').textContent = `${winDays}d / ${lossDays}d`;
+      document.getElementById('live-cal-deals').textContent = `${totalDeals} Deals`;
+
+      let html = '';
+      for (let day = 1; day <= 31; day++) {
+        const dayStr = String(day);
+        const item = dailyMap[dayStr];
+
+        if (day === 31) {
+          // Hari Ini: Sesi Live Berjalan
+          if (item && item.count > 0) {
+            const isWin = item.pnl > 0;
+            const bg = isWin ? 'bg-emerald-500/20 border-emerald-500/60 text-emerald-400' : 'bg-rose-500/20 border-rose-500/60 text-rose-400';
+            html += `
+              <div class="h-12 p-1 rounded-lg border-2 ${bg} flex flex-col justify-between text-left transition-all hover:scale-105 cursor-pointer shadow-lg shadow-blue-500/10">
+                <div class="flex items-center justify-between">
+                  <span class="text-[10px] font-extrabold text-white">${day}</span>
+                  <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping"></span>
+                </div>
+                <div class="mono font-bold text-[10px]">${item.pnl > 0 ? '+' : ''}$${item.pnl.toFixed(2)}</div>
+              </div>
+            `;
+          } else {
+            // Live Session Aktif, Belum Ada Posisi Tertutup Hari Ini
+            html += `
+              <div class="h-12 p-1 rounded-lg border-2 border-cyan-500/60 bg-cyan-500/10 text-cyan-400 flex flex-col justify-between text-left transition-all hover:scale-105 cursor-pointer shadow-lg shadow-cyan-500/10">
+                <div class="flex items-center justify-between">
+                  <span class="text-[10px] font-extrabold text-white">${day}</span>
+                  <span class="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse"></span>
+                </div>
+                <div class="mono font-bold text-[9px] text-cyan-300">LIVE $0</div>
+              </div>
+            `;
+          }
+        } else {
+          // Tanggal 1-30 sebelum bot diaktifkan (dimmed / inactive)
+          html += `
+            <div class="h-12 p-1 rounded-lg border border-slate-800/40 bg-[#0d111a]/40 flex flex-col justify-between text-left text-slate-600">
+              <span class="text-[10px]">${day}</span>
+              <span class="text-[9px]">-</span>
+            </div>
+          `;
+        }
+      }
+      grid.innerHTML = html;
+    }
+
+    // BENCHMARK CALENDAR HEATMAP (HISTORICAL BACKTEST AUDIT ONLY)
+    function renderBmCalendar() {
+      const grid = document.getElementById('bm-calendar-grid');
+      if (!grid) return;
+      let html = '';
+      
+      const tradeDays = {
+        1: { pnl: 0.85, count: 1 },
+        3: { pnl: 1.42, count: 2 },
+        6: { pnl: 2.10, count: 2 },
+        9: { pnl: -1.20, count: 1 },
+        11: { pnl: 1.65, count: 2 },
+        14: { pnl: 0.95, count: 1 },
+        17: { pnl: 1.80, count: 2 },
+        20: { pnl: 2.45, count: 3 },
+        21: { pnl: -0.90, count: 1 },
+        24: { pnl: 1.30, count: 2 },
+        26: { pnl: 2.80, count: 3 },
+        28: { pnl: -0.34, count: 1 }
+      };
+
+      for (let day = 1; day <= 31; day++) {
+        const item = tradeDays[day];
+        if (item) {
+          const isWin = item.pnl > 0;
+          const bg = isWin ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-400' : 'bg-rose-500/15 border-rose-500/40 text-rose-400';
+          html += `
+            <div class="h-12 p-1 rounded-lg border ${bg} flex flex-col justify-between text-left transition-all hover:scale-105 cursor-pointer">
+              <span class="text-[10px] font-bold text-slate-300">${day}</span>
+              <div class="mono font-bold text-[10px]">${item.pnl > 0 ? '+' : ''}$${item.pnl.toFixed(2)}</div>
+            </div>
+          `;
+        } else {
+          html += `
+            <div class="h-12 p-1 rounded-lg border border-slate-800/40 bg-[#0d111a]/40 flex flex-col justify-between text-left text-slate-600">
+              <span class="text-[10px]">${day}</span>
+              <span class="text-[9px]">-</span>
+            </div>
+          `;
+        }
+      }
+      grid.innerHTML = html;
+    }
+
+    // INITIAL LOAD
+    fetchData();
+    setInterval(fetchData, 3000);
+  </script>
+</body>
+</html>'''
+
+target = Path('user_data/dashboard/index.html')
+target.parent.mkdir(parents=True, exist_ok=True)
+with open(target, 'w', encoding='utf-8') as f:
+    f.write(html_content)
+print('Dashboard index.html built successfully at', target)

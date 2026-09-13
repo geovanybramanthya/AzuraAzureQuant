@@ -1,0 +1,37 @@
+{
+  "strategy_name": "AlphaRegime_Futures_Strategy",
+  "params": {
+    "max_open_trades": {
+      "max_open_trades": 2
+    },
+    "sell": {
+      "sell_adx_1h": 20,
+      "sell_adx_4h": 17,
+      "sell_rsi_max": 50,
+      "sell_rsi_min": 38
+    },
+    "buy": {
+      "buy_adx_1h": 16,
+      "buy_adx_4h": 28,
+      "buy_rsi_max": 60,
+      "buy_rsi_min": 51
+    },
+    "roi": {
+      "0": 0.216,
+      "314": 0.094,
+      "953": 0.04,
+      "1311": 0
+    },
+    "stoploss": {
+      "stoploss": -0.058
+    },
+    "trailing": {
+      "trailing_stop": true,
+      "trailing_stop_positive": 0.234,
+      "trailing_stop_positive_offset": 0.265,
+      "trailing_only_offset_is_reached": false
+    }
+  },
+  "ft_stratparam_v": 1,
+  "export_time": "2026-08-30 15:45:14.991887+00:00"
+}
