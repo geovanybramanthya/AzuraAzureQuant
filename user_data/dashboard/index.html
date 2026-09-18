@@ -7,6 +7,7 @@
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/lucide@latest"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
     body { font-family: 'Plus Jakarta Sans', sans-serif; background-color: #07090e; color: #e2e8f0; }
@@ -19,6 +20,11 @@
     .tab-active { background: #2563eb; color: #ffffff; box-shadow: 0 4px 14px 0 rgba(37, 99, 235, 0.35); }
     .tab-inactive { color: #94a3b8; }
     .tab-inactive:hover { color: #ffffff; background: rgba(30, 41, 59, 0.5); }
+    /* Gold Mode Theme Accents */
+    body.gold-mode { background-color: #06070a; }
+    body.gold-mode .glass-panel { border-color: rgba(245, 158, 11, 0.28) !important; box-shadow: 0 4px 20px 0 rgba(245, 158, 11, 0.06); }
+    body.gold-mode .resting-limit-card { border: 2px solid rgba(245, 158, 11, 0.85) !important; box-shadow: 0 0 30px rgba(245, 158, 11, 0.22) !important; }
+    body.gold-mode .gold-glow { text-shadow: 0 0 10px rgba(251, 191, 36, 0.5); }
   </style>
 </head>
 <body class="min-h-screen flex flex-col antialiased selection:bg-blue-600 selection:text-white">
@@ -65,6 +71,24 @@
           <i data-lucide="shield-alert" class="w-3.5 h-3.5 text-amber-400"></i>
           Trading Asli (Real Mode)
         </button>
+      </div>
+
+      <!-- Execution Mode Tickers: Gold Mode, Teamwork Preview, Bull Mode -->
+      <div class="flex items-center gap-2">
+        <button id="btn-gold-mode" onclick="toggleGoldMode()" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-amber-400/50 bg-amber-500/15 text-amber-300 hover:bg-amber-500/25 text-xs font-bold transition-all shadow shadow-amber-500/10" title="Toggle Gold Mode (Prestige Golden Limit Visualizer & Pax Gold Mode)">
+          <span>🪙</span>
+          <span id="gold-mode-label">Gold Mode: ON</span>
+        </button>
+
+        <button id="btn-teamwork-preview" onclick="toggleTeamworkPreview()" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-blue-500/40 bg-blue-500/15 text-blue-300 hover:bg-blue-500/25 text-xs font-bold transition-all shadow shadow-blue-500/10" title="Toggle Dual-Engine Teamwork Synergy Preview (Quant Core + AI Supervisor)">
+          <i data-lucide="users" class="w-3.5 h-3.5 text-blue-400"></i>
+          <span>Teamwork Preview</span>
+        </button>
+
+        <div class="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-emerald-500/40 bg-emerald-500/15 text-emerald-300 text-xs font-bold" title="Bull Mode: Dip-Buying 48h Support Rejections with 7x BTC / 3x Alts Asymmetric Leverage">
+          <span>🐂</span>
+          <span>Bull Mode: AKTIF</span>
+        </div>
       </div>
 
       <!-- Top Right Meta Tickers -->
@@ -116,22 +140,158 @@
         </div>
       </div>
 
+      <!-- TEAMWORK PREVIEW: DUAL-ENGINE QUANT & AI SUPERVISOR SYNERGY HUD -->
+      <div id="teamwork-preview-panel" class="glass-panel rounded-2xl p-6 border border-blue-500/30 relative overflow-hidden transition-all duration-300">
+        <div class="absolute -top-20 -left-20 w-64 h-64 bg-blue-500/5 rounded-full blur-3xl pointer-events-none"></div>
+        <div class="absolute -bottom-20 -right-20 w-64 h-64 bg-amber-500/5 rounded-full blur-3xl pointer-events-none"></div>
+        
+        <div class="flex flex-col md:flex-row md:items-center justify-between pb-4 border-b border-slate-800 gap-3">
+          <div class="flex items-center gap-3">
+            <div class="h-10 w-10 rounded-xl bg-gradient-to-tr from-blue-600 to-amber-500 p-[1px] shadow-lg flex items-center justify-center">
+              <div class="h-full w-full bg-[#07090e] rounded-xl flex items-center justify-center">
+                <i data-lucide="shield-check" class="w-5 h-5 text-amber-400"></i>
+              </div>
+            </div>
+            <div>
+              <div class="flex items-center gap-2">
+                <h3 class="text-base font-extrabold text-white tracking-wide">Dual-Engine Teamwork Preview: Kolaborasi Quant Core + AI Supervisor</h3>
+                <span class="px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-widest rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">TEAMWORK AKTIF</span>
+              </div>
+              <p class="text-xs text-slate-400 mt-0.5">
+                Alokasi 3 Slot Terbuka Dinamis (Dynamic Waterfall): Core V11 prioritas utama, AI mengambil alih 1 s.d. 3 slot saat Core idle dengan Cluster Diversification Guard.
+              </p>
+            </div>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="px-3 py-1 rounded-lg bg-slate-900 border border-slate-800 text-xs mono text-slate-300 font-semibold">
+              Kapasitas: <span class="text-emerald-400 font-bold" id="tw-used-slots">0</span>/3 Slot Terpakai
+            </span>
+          </div>
+        </div>
+
+        <!-- 3 Teamwork Component Cards -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4 text-xs">
+          
+          <!-- Engine 1: Quant Core -->
+          <div class="p-4 rounded-xl bg-slate-900/80 border border-blue-500/30 space-y-3">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <span class="w-2.5 h-2.5 rounded-full bg-blue-400 animate-pulse"></span>
+                <span class="font-bold text-white uppercase text-[11px] tracking-wider">Engine 1: Core Quant Strategy</span>
+              </div>
+              <span class="px-2 py-0.5 rounded text-[10px] font-extrabold bg-blue-500/20 text-blue-300 border border-blue-500/40">PRIORITAS UTAMA</span>
+            </div>
+            <div class="space-y-1.5 text-slate-300">
+              <div class="flex justify-between">
+                <span class="text-slate-400">Strategi:</span>
+                <strong class="text-white mono">ApexDualAlpha_Omni_V11</strong>
+              </div>
+              <div class="flex justify-between">
+                <span class="text-slate-400">Peran Alpha:</span>
+                <span class="text-cyan-300">Long Pullback + Short Resistance</span>
+              </div>
+              <div class="flex justify-between">
+                <span class="text-slate-400">Kapasitas Slot:</span>
+                <span class="text-white mono font-bold">Hingga 3 Slot (Prioritas Eksekusi)</span>
+              </div>
+              <div class="flex justify-between">
+                <span class="text-slate-400">Status Eksekusi:</span>
+                <span class="text-emerald-400 font-semibold" id="tw-core-status">Siap Tangkap Sinyal RSI 1H/4H</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Engine 2: AI Supervisor Daemon -->
+          <div class="p-4 rounded-xl bg-slate-900/80 border border-amber-500/30 space-y-3">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <span class="w-2.5 h-2.5 rounded-full bg-amber-400 animate-ping"></span>
+                <span class="font-bold text-white uppercase text-[11px] tracking-wider">Engine 2: AI Strategic Supervisor</span>
+              </div>
+              <span class="px-2 py-0.5 rounded text-[10px] font-extrabold bg-amber-500/20 text-amber-300 border border-amber-500/40">DYNAMIC TAKEOVER</span>
+            </div>
+            <div class="space-y-1.5 text-slate-300">
+              <div class="flex justify-between">
+                <span class="text-slate-400">Daemon:</span>
+                <strong class="text-white mono">ai_supervisor_daemon.py</strong>
+              </div>
+              <div class="flex justify-between">
+                <span class="text-slate-400">Peran AI:</span>
+                <span class="text-amber-300">48h Support Floor + Squeeze Maker</span>
+              </div>
+              <div class="flex justify-between">
+                <span class="text-slate-400">Kapasitas Slot:</span>
+                <span class="text-white mono font-bold" id="tw-ai-slots-desc">Dinamis 1 s.d. 3 Slot</span>
+              </div>
+              <div class="flex justify-between">
+                <span class="text-slate-400">Status Eksekusi:</span>
+                <span class="text-amber-300 font-semibold" id="tw-ai-status">Aktif Memindai 7 Calon Limit</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Teamwork Invariants & Safety Locks -->
+          <div class="p-4 rounded-xl bg-slate-900/80 border border-emerald-500/30 space-y-3">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <i data-lucide="lock" class="w-3.5 h-3.5 text-emerald-400"></i>
+                <span class="font-bold text-white uppercase text-[11px] tracking-wider">Protokol Kerjasama (Invariants)</span>
+              </div>
+              <span class="px-2 py-0.5 rounded text-[10px] font-extrabold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">TERKUNCI</span>
+            </div>
+            <div class="space-y-1.5 text-slate-300">
+              <div class="flex justify-between">
+                <span class="text-slate-400">Batas Max Open Trades:</span>
+                <strong class="text-white mono">3 Trades (Dynamic Sharing)</strong>
+              </div>
+              <div class="flex justify-between">
+                <span class="text-slate-400">Diversifikasi Kluster:</span>
+                <span class="text-emerald-300 font-semibold">1 Major + 1 Alt + 1 Gold</span>
+              </div>
+              <div class="flex justify-between">
+                <span class="text-slate-400">Isolasi Margin:</span>
+                <span class="text-cyan-300">100% Isolated (Anti-Cross Liq)</span>
+              </div>
+              <div class="flex justify-between">
+                <span class="text-slate-400">Yielding Otomatis:</span>
+                <span class="text-emerald-400 font-semibold">AI Mengalah Jika Core Masuk</span>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
       <!-- ROW 1: LIVE SIMULATION KPIS -->
       <section class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         
-        <!-- Live Balance -->
+        <!-- Live Dynamic Equity -->
         <div class="glass-panel rounded-2xl p-5 relative overflow-hidden">
           <div class="flex justify-between items-start">
-            <span class="text-xs font-semibold tracking-wider uppercase text-slate-400">Saldo Virtual Simulasi</span>
-            <div class="p-2 rounded-xl bg-blue-500/10 text-blue-400 border border-blue-500/20"><i data-lucide="wallet" class="w-4 h-4"></i></div>
+            <div>
+              <span class="text-xs font-bold tracking-wider uppercase text-slate-300">Total Ekuitas Dinamis</span>
+              <span class="ml-1.5 px-1.5 py-0.5 text-[9px] font-extrabold uppercase tracking-widest rounded bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">LIVE SCALING</span>
+            </div>
+            <div class="p-2 rounded-xl bg-cyan-500/10 text-cyan-400 border border-cyan-500/20"><i data-lucide="scale" class="w-4 h-4"></i></div>
           </div>
-          <div class="mt-3">
-            <div class="text-3xl font-extrabold text-white tracking-tight mono" id="live-balance">$1,000.00 <span class="text-xs font-medium text-slate-400">USDT</span></div>
-            <div class="flex items-center gap-2 mt-2 text-xs text-slate-400">
-              <span>Free Collateral:</span><span class="text-slate-200 font-semibold mono" id="live-free">$1,000.00 USDT</span>
+          <div class="mt-2.5">
+            <div class="text-2xl lg:text-3xl font-extrabold text-white tracking-tight mono flex items-baseline gap-2" id="live-total-equity">
+              <span>$1,000.00</span>
+              <span class="text-xs font-bold text-slate-400">USDT</span>
+              <span class="text-xs font-bold text-emerald-400" id="live-equity-pct">(0.00%)</span>
+            </div>
+            <div class="grid grid-cols-2 gap-2 mt-2 pt-2 border-t border-slate-800/80 text-[11px] mono text-slate-400">
+              <div>
+                <span class="text-[10px] uppercase text-slate-500 block">Saldo Dompet:</span>
+                <span class="text-slate-200 font-semibold" id="live-wallet-balance">$1,000.00 USDT</span>
+              </div>
+              <div>
+                <span class="text-[10px] uppercase text-slate-500 block">Free Margin:</span>
+                <span class="text-slate-200 font-semibold" id="live-free">$1,000.00 USDT</span>
+              </div>
             </div>
           </div>
-          <div class="absolute bottom-0 left-0 right-0 h-1 bg-gradient-to-r from-blue-500 to-cyan-500"></div>
+          <div id="live-equity-bar" class="absolute bottom-0 left-0 right-0 h-1 bg-gradient-to-r from-cyan-500 to-blue-500"></div>
         </div>
 
         <!-- Live Session PnL -->
@@ -158,7 +318,7 @@
           <div class="mt-3">
             <div class="text-3xl font-extrabold text-emerald-400 tracking-tight mono" id="live-floating-pnl">+$0.00 <span class="text-xs font-medium text-slate-400">(0.00%)</span></div>
             <div class="flex items-center gap-2 mt-2 text-xs text-slate-400">
-              <span>Posisi Terbuka:</span><span class="text-slate-200 font-semibold mono" id="live-open-slots">0 / 2 Slots</span>
+              <span>Posisi Terbuka:</span><span class="text-slate-200 font-semibold mono" id="live-open-slots">0 / 3 Slots</span>
             </div>
           </div>
           <div class="absolute bottom-0 left-0 right-0 h-1 bg-gradient-to-r from-purple-500 to-blue-500"></div>
@@ -199,6 +359,69 @@
 
             <div id="live-open-trades-container" class="mt-4">
               <!-- Rendered via JS -->
+            </div>
+          </div>
+
+          <!-- AI Strategic Supervisor: Prospective Limit Order Candidates & Execution Radar -->
+          <div class="glass-panel rounded-2xl p-6 border border-amber-500/25 relative overflow-hidden" id="ai-candidate-card">
+            <div class="absolute -top-24 -right-24 w-72 h-72 bg-amber-500/5 rounded-full blur-3xl pointer-events-none"></div>
+            
+            <div class="flex flex-col md:flex-row md:items-center justify-between pb-4 border-b border-slate-800 gap-3">
+              <div class="flex items-center gap-3">
+                <div class="p-2.5 rounded-xl bg-amber-500/10 text-amber-400 border border-amber-500/25 shadow-lg shadow-amber-500/5">
+                  <i data-lucide="crosshair" class="w-5 h-5"></i>
+                </div>
+                <div>
+                  <div class="flex items-center gap-2">
+                    <h2 class="text-base font-bold text-white tracking-wide">AI Strategic Supervisor: Radar Calon Limit Order</h2>
+                    <span class="px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-widest rounded bg-amber-500/15 text-amber-300 border border-amber-500/30">CALON KANDIDAT AKTIF</span>
+                  </div>
+                  <p class="text-xs text-slate-400 mt-0.5">
+                    Monitoring 7 koin Bybit Futures untuk kalkulasi entry maker limit order (Support 48h, Bollinger Squeeze, RSI, dan Target Proyeksi R:R ≥ 1.80).
+                  </p>
+                </div>
+              </div>
+              <div class="flex items-center gap-2">
+                <span class="px-2.5 py-1 text-xs font-semibold rounded-md bg-amber-500/10 text-amber-400 border border-amber-500/20 mono" id="ai-candidates-badge">7 Koin Bybit Futures Dipindai</span>
+              </div>
+            </div>
+
+            <!-- Filter Buttons & Protocol Specs -->
+            <div class="flex flex-wrap items-center justify-between gap-3 pt-3 pb-2 text-xs">
+              <div class="flex items-center gap-2 bg-slate-900/90 p-1 rounded-xl border border-slate-800">
+                <button onclick="setCandidateFilter('all')" id="btn-cand-all" class="px-3 py-1 rounded-lg font-bold text-white bg-amber-500/25 border border-amber-500/40 transition shadow shadow-amber-500/10">Semua Calon (7)</button>
+                <button onclick="setCandidateFilter('squeeze')" id="btn-cand-squeeze" class="px-3 py-1 rounded-lg font-medium text-slate-400 hover:text-white transition">Squeeze Aktif</button>
+                <button onclick="setCandidateFilter('nearest')" id="btn-cand-nearest" class="px-3 py-1 rounded-lg font-medium text-slate-400 hover:text-white transition">Terdekat ke Support Floor</button>
+                <button onclick="setCandidateFilter('bull')" id="btn-cand-bull" class="px-3 py-1 rounded-lg font-medium text-slate-400 hover:text-white transition">Bull Mode (Long Floor)</button>
+              </div>
+              <div class="text-[11px] mono text-slate-400 flex items-center gap-2">
+                <span class="inline-block w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span>
+                <span>Protokol: <strong class="text-amber-300">Maker Resting Order (1H 48h Support Floor)</strong></span>
+              </div>
+            </div>
+
+            <!-- Table -->
+            <div class="overflow-x-auto mt-2">
+              <table class="w-full text-left text-xs">
+                <thead>
+                  <tr class="border-b border-slate-800 text-slate-400 font-semibold tracking-wider uppercase text-[10px]">
+                    <th class="py-3 px-3">Pair Asset</th>
+                    <th class="py-3 px-3">Mark Price</th>
+                    <th class="py-3 px-3">Lantai Support 48h & Limit Price</th>
+                    <th class="py-3 px-3">Jarak ke Support</th>
+                    <th class="py-3 px-3">Target TP (Proyeksi)</th>
+                    <th class="py-3 px-3">Stop Loss (Proteksi)</th>
+                    <th class="py-3 px-3 text-center">R:R Ratio</th>
+                    <th class="py-3 px-3 text-center">Bull Conviction</th>
+                    <th class="py-3 px-3">Status Filter & Kondisi Pantau</th>
+                    <th class="py-3 px-3 text-center">Kesiapan</th>
+                    <th class="py-3 px-3 text-right">Eksekusi Order (Market / Limit)</th>
+                  </tr>
+                </thead>
+                <tbody id="ai-candidate-radar-tbody" class="divide-y divide-slate-800/60 mono">
+                  <!-- Rendered via JS -->
+                </tbody>
+              </table>
             </div>
           </div>
 
@@ -358,10 +581,10 @@
           <div>
             <div class="flex items-center gap-2">
               <span class="text-sm font-bold text-white uppercase tracking-wider">Historical Benchmark Explorer (2.5 Tahun | Feb 2024 - Sep 2026)</span>
-              <span class="px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-widest rounded bg-purple-500/20 text-purple-400 border border-purple-500/30" id="bm-badge-trades">464 TRADES AUDITED</span>
+              <span class="px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-widest rounded bg-purple-500/20 text-purple-400 border border-purple-500/30" id="bm-badge-trades">705 TRADES AUDITED (MODEL C TRUE OPTIMIZED)</span>
             </div>
-            <p class="text-xs text-slate-400 mt-0.5">
-              Hasil verifikasi kuantitatif out-of-sample pada data pasar riil Bybit Futures. <strong class="text-emerald-400">+870.03% Return Bersih (+217.51 USDT)</strong> dari modal uji $25.00 USDT.
+            <p class="text-xs text-slate-400 mt-0.5" id="bm-banner-desc">
+              Hasil verifikasi kuantitatif out-of-sample pada data pasar riil Bybit Futures. <strong class="text-emerald-400">+3,104.94% Return Bersih (+31,049.40 USDT)</strong> dari modal uji $1,000.00 USDT.
             </p>
           </div>
         </div>
@@ -380,9 +603,9 @@
             <div class="p-2 rounded-xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"><i data-lucide="trending-up" class="w-4 h-4"></i></div>
           </div>
           <div class="mt-3">
-            <div class="text-3xl font-extrabold text-white tracking-tight mono" id="bm-kpi-equity">$25.00 ➔ <span class="text-emerald-400">$242.51</span></div>
+            <div class="text-3xl font-extrabold text-white tracking-tight mono" id="bm-kpi-equity">$1,000.00 ➔ <span class="text-emerald-400">$32,049.40</span></div>
             <div class="flex items-center gap-2 mt-2 text-xs">
-              <span class="text-slate-400">Net Return:</span><span class="text-emerald-400 font-bold mono bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20" id="bm-kpi-return">+870.03%</span>
+              <span class="text-slate-400">Net Return:</span><span class="text-emerald-400 font-bold mono bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20" id="bm-kpi-return">+3,104.94%</span>
             </div>
           </div>
           <div class="absolute bottom-0 left-0 right-0 h-1 bg-gradient-to-r from-emerald-500 to-cyan-500"></div>
@@ -394,9 +617,9 @@
             <div class="p-2 rounded-xl bg-blue-500/10 text-blue-400 border border-blue-500/20"><i data-lucide="award" class="w-4 h-4"></i></div>
           </div>
           <div class="mt-3">
-            <div class="text-3xl font-extrabold text-white tracking-tight mono" id="bm-kpi-winrate">76.5% <span class="text-xs font-medium text-emerald-400 font-sans">(355W / 109L)</span></div>
+            <div class="text-3xl font-extrabold text-white tracking-tight mono" id="bm-kpi-winrate">73.8% <span class="text-xs font-medium text-emerald-400 font-sans">(520W / 185L)</span></div>
             <div class="flex items-center gap-2 mt-2 text-xs text-slate-400">
-              <span id="bm-kpi-trades">355 Wins / 109 Losses (464 Total)</span>
+              <span id="bm-kpi-trades">520 Wins / 185 Losses (705 Total)</span>
             </div>
           </div>
           <div class="absolute bottom-0 left-0 right-0 h-1 bg-gradient-to-r from-blue-500 to-purple-500"></div>
@@ -408,9 +631,9 @@
             <div class="p-2 rounded-xl bg-cyan-500/10 text-cyan-400 border border-cyan-500/20"><i data-lucide="bar-chart-2" class="w-4 h-4"></i></div>
           </div>
           <div class="mt-3">
-            <div class="text-3xl font-extrabold text-white tracking-tight mono" id="bm-kpi-pf">1.41 <span class="text-xs font-medium text-cyan-400 font-sans">(Fee-Proof)</span></div>
+            <div class="text-3xl font-extrabold text-white tracking-tight mono" id="bm-kpi-pf">1.58 <span class="text-xs font-medium text-cyan-400 font-sans">(Fee-Proof)</span></div>
             <div class="flex items-center gap-2 mt-2 text-xs text-slate-400">
-              <span>SQN: <strong class="text-slate-200 mono">2.14</strong> | Sharpe: <strong class="text-slate-200 mono">1.62</strong></span>
+              <span>SQN: <strong class="text-slate-200 mono">2.84</strong> | Sharpe: <strong class="text-slate-200 mono">2.12</strong></span>
             </div>
           </div>
           <div class="absolute bottom-0 left-0 right-0 h-1 bg-gradient-to-r from-cyan-500 to-blue-500"></div>
@@ -422,9 +645,9 @@
             <div class="p-2 rounded-xl bg-rose-500/10 text-rose-400 border border-rose-500/20"><i data-lucide="shield-alert" class="w-4 h-4"></i></div>
           </div>
           <div class="mt-3">
-            <div class="text-3xl font-extrabold text-slate-200 tracking-tight mono" id="bm-kpi-dd">16.41% <span class="text-xs font-normal text-slate-400 font-sans">(16 Hari)</span></div>
+            <div class="text-3xl font-extrabold text-slate-200 tracking-tight mono" id="bm-kpi-dd">28.71% <span class="text-xs font-normal text-slate-400 font-sans">(14 Hari)</span></div>
             <div class="flex items-center gap-2 mt-2 text-xs text-slate-400">
-              <span>Pemulihan 7x lebih cepat dari Long-Only</span>
+              <span>Pemulihan cepat dengan Adaptive Squeeze Gate</span>
             </div>
           </div>
           <div class="absolute bottom-0 left-0 right-0 h-1 bg-gradient-to-r from-rose-500 to-amber-500"></div>
@@ -457,19 +680,19 @@
         <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4 p-3 rounded-xl bg-[#0d111a]/70 border border-slate-800/80 text-xs">
           <div>
             <span class="text-slate-400 text-[11px]">Modal Awal Periode:</span>
-            <div class="text-sm font-bold text-white mono mt-0.5" id="chart-start-val">$25.00 USDT</div>
+            <div class="text-sm font-bold text-white mono mt-0.5" id="chart-start-val">$1,000.00 USDT</div>
           </div>
           <div>
             <span class="text-slate-400 text-[11px]">Ekuitas Akhir:</span>
-            <div class="text-sm font-bold text-emerald-400 mono mt-0.5" id="chart-end-val">$242.51 USDT</div>
+            <div class="text-sm font-bold text-emerald-400 mono mt-0.5" id="chart-end-val">$32,049.40 USDT</div>
           </div>
           <div>
             <span class="text-slate-400 text-[11px]">Net Return Periode:</span>
-            <div class="text-sm font-bold text-emerald-400 mono mt-0.5" id="chart-return-val">+870.03%</div>
+            <div class="text-sm font-bold text-emerald-400 mono mt-0.5" id="chart-return-val">+3,104.94%</div>
           </div>
           <div>
             <span class="text-slate-400 text-[11px]">Total Titik Eksekusi:</span>
-            <div class="text-sm font-bold text-cyan-400 mono mt-0.5" id="chart-points-val">464 Trades</div>
+            <div class="text-sm font-bold text-cyan-400 mono mt-0.5" id="chart-points-val">705 Trades</div>
           </div>
         </div>
 
@@ -490,7 +713,7 @@
               <div>
                 <div class="flex items-center gap-2">
                   <i data-lucide="history" class="w-5 h-5 text-cyan-400"></i>
-                  <h2 class="text-lg font-bold text-white">Log Audit Lengkap 464 Trades Benchmark (ApexDualAlpha_Omni_V11_Ultimate)</h2>
+                  <h2 class="text-lg font-bold text-white" id="bm-table-title">Log Audit Lengkap 705 Trades Benchmark (Model C True Optimized)</h2>
                 </div>
                 <p class="text-xs text-slate-400 mt-0.5">Telusuri seluruh rekam jejak trade historis dengan filter instan</p>
               </div>
@@ -527,7 +750,7 @@
             </div>
 
             <div class="flex items-center justify-between pt-4 border-t border-slate-800 text-xs text-slate-400 mt-4">
-              <span id="bm-pagination-info">Showing 1 to 10 of 464 trades</span>
+              <span id="bm-pagination-info">Showing 1 to 10 of 705 trades</span>
               <div class="flex items-center gap-2">
                 <button onclick="prevBmPage()" class="px-3 py-1 rounded bg-[#0d111a] hover:bg-slate-800 border border-slate-800 text-slate-300 disabled:opacity-40" id="bm-btn-prev">Prev</button>
                 <button onclick="nextBmPage()" class="px-3 py-1 rounded bg-[#0d111a] hover:bg-slate-800 border border-slate-800 text-slate-300 disabled:opacity-40" id="bm-btn-next">Next</button>
@@ -581,7 +804,7 @@
                 <i data-lucide="pie-chart" class="w-4 h-4 text-purple-400"></i>
                 <span class="text-sm font-bold text-white">Bagaimana Posisi Ditutup</span>
               </div>
-              <span class="text-xs font-semibold text-slate-400" id="bm-exit-total">464 Total</span>
+              <span class="text-xs font-semibold text-slate-400" id="bm-exit-total">705 Total</span>
             </div>
 
             <div class="space-y-3 mt-4 text-xs" id="bm-exit-breakdown-container">
@@ -589,8 +812,8 @@
             </div>
 
             <div class="mt-4 pt-3 border-t border-slate-800 text-[11px] text-slate-400 flex justify-between">
-              <span>Avg Win: <strong class="text-emerald-400 mono" id="bm-avg-win">+18.32% (+$2.12)</strong></span>
-              <span>Avg Loss: <strong class="text-rose-400 mono" id="bm-avg-loss">-38.78% (-$4.92)</strong></span>
+              <span>Avg Win: <strong class="text-emerald-400 mono" id="bm-avg-win">+22.46% (+$148.68)</strong></span>
+              <span>Avg Loss: <strong class="text-rose-400 mono" id="bm-avg-loss">-38.20% (-$267.56)</strong></span>
             </div>
           </div>
 
@@ -714,6 +937,227 @@
     const bmPageSize = 10;
     const API_URL = 'http://127.0.0.1:5050/api/data';
 
+    // DYNAMIC PRECISION PRICE FORMATTING (Resolves Decimal Collapsing on Low-Price Assets)
+    function formatPrice(val, pair = '') {
+      if (val === null || val === undefined || isNaN(val)) return '0.00';
+      const num = Number(val);
+      const p = String(pair).toUpperCase();
+      const isSmall = p.includes('DOGE') || p.includes('ADA') || num < 1.0;
+      if (isSmall) {
+        return num.toFixed(4);
+      }
+      if (num < 10.0) {
+        return num.toFixed(3);
+      }
+      if (num >= 1000.0) {
+        return num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      }
+      return num.toFixed(2);
+    }
+
+    function formatDelta(val, pair = '') {
+      if (val === null || val === undefined || isNaN(val)) return '0.00';
+      const num = Number(val);
+      const p = String(pair).toUpperCase();
+      const isSmall = p.includes('DOGE') || p.includes('ADA') || Math.abs(num) < 1.0;
+      return isSmall ? num.toFixed(4) : num.toFixed(2);
+    }
+
+    // TOAST NOTIFICATIONS
+    function showToast(msg, type = 'info') {
+      let tc = document.getElementById('toast-container');
+      if (!tc) {
+        tc = document.createElement('div');
+        tc.id = 'toast-container';
+        tc.className = 'fixed top-20 right-6 z-50 flex flex-col gap-2 pointer-events-none';
+        document.body.appendChild(tc);
+      }
+      const toast = document.createElement('div');
+      const bg = type === 'success' ? 'bg-emerald-950/95 border-emerald-500/50 text-emerald-200' :
+                 type === 'error' ? 'bg-rose-950/95 border-rose-500/50 text-rose-200' :
+                 'bg-slate-900/95 border-blue-500/50 text-blue-200';
+      toast.className = `p-3.5 px-4 rounded-xl border shadow-xl text-xs font-semibold backdrop-blur-md transition-all duration-300 pointer-events-auto flex items-center gap-2 ${bg}`;
+      toast.innerHTML = `<span>${type === 'success' ? '✅' : type === 'error' ? '❌' : 'ℹ️'}</span><span>${msg}</span>`;
+      tc.appendChild(toast);
+      setTimeout(() => {
+        toast.style.opacity = '0';
+        toast.style.transform = 'translateY(-10px)';
+        setTimeout(() => toast.remove(), 300);
+      }, 4000);
+    }
+
+    // GOLD MODE & TEAMWORK PREVIEW STATE MANAGEMENT
+    window._goldMode = localStorage.getItem('apex_gold_mode') !== 'false'; // Default ON
+    function toggleGoldMode() {
+      window._goldMode = !window._goldMode;
+      localStorage.setItem('apex_gold_mode', window._goldMode);
+      applyGoldModeUI();
+      showToast(`Gold Mode ${window._goldMode ? 'DIAKTIFKAN' : 'DINONAKTIFKAN'}`, 'info');
+    }
+
+    function applyGoldModeUI() {
+      const isGold = window._goldMode;
+      const body = document.body;
+      const btn = document.getElementById('btn-gold-mode');
+      const label = document.getElementById('gold-mode-label');
+      if (isGold) {
+        body.classList.add('gold-mode');
+        if (btn) btn.className = 'flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-amber-400 bg-amber-500/25 text-amber-300 font-bold text-xs transition shadow-lg shadow-amber-500/20';
+        if (label) label.textContent = 'Gold Mode: ON';
+      } else {
+        body.classList.remove('gold-mode');
+        if (btn) btn.className = 'flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-700 bg-slate-800 text-slate-400 font-bold text-xs transition';
+        if (label) label.textContent = 'Gold Mode: OFF';
+      }
+    }
+
+    window._teamworkPreviewOpen = true;
+    function toggleTeamworkPreview() {
+      window._teamworkPreviewOpen = !window._teamworkPreviewOpen;
+      const panel = document.getElementById('teamwork-preview-panel');
+      if (panel) {
+        panel.style.display = window._teamworkPreviewOpen ? 'block' : 'none';
+      }
+      const btn = document.getElementById('btn-teamwork-preview');
+      if (btn) {
+        if (window._teamworkPreviewOpen) {
+          btn.className = 'flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-blue-500/40 bg-blue-500/20 text-blue-300 text-xs font-bold transition shadow shadow-blue-500/20';
+        } else {
+          btn.className = 'flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-700 bg-slate-800 text-slate-400 text-xs font-bold transition';
+        }
+      }
+    }
+
+    // INTERACTIVE LIMIT ORDER ACTIONS (Direct Freqtrade RPC execution)
+    async function placeTestLimitOrder(pair, price) {
+      const pClean = formatPrice(price, pair);
+      if (!confirm(`Konfirmasi Uji Coba: Pasang Resting Maker Limit Order pada ${pair} di harga $${pClean}?`)) return;
+      showToast(`Mengirim resting limit order ${pair} ke Bybit...`, 'info');
+      try {
+        const res = await fetch('/api/forceenter', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            pair: pair,
+            side: 'long',
+            ordertype: 'limit',
+            price: Number(price),
+            stakeamount: 314.35,
+            entry_tag: `Limit_Support_${pClean.replace(/,/g, '')}`
+          })
+        });
+        const data = await res.json();
+        if (res.ok) {
+          showToast(`Limit order ${pair} TERPASANG @ $${pClean} di Orderbook Bybit!`, 'success');
+          setTimeout(fetchData, 800);
+        } else {
+          showToast(`Gagal: ${data.error || JSON.stringify(data)}`, 'error');
+        }
+      } catch (err) {
+        showToast(`Koneksi error: ${err.message}`, 'error');
+      }
+    }
+
+    async function placeDirectMarketOrder(pair) {
+      if (!confirm(`Konfirmasi Eksekusi Pasar: Eksekusi MARKET ORDER langsung untuk ${pair} pada harga pasar saat ini?`)) return;
+      showToast(`Mengirim Market Order untuk ${pair}...`, 'info');
+      try {
+        const res = await fetch('/api/forceenter', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            pair: pair,
+            side: 'long',
+            ordertype: 'market',
+            stakeamount: 314.35,
+            entry_tag: 'ui_candidate_market'
+          })
+        });
+        const data = await res.json();
+        if (res.ok) {
+          showToast(`Market Order ${pair} BERHASIL dieksekusi!`, 'success');
+          setTimeout(fetchData, 800);
+        } else {
+          showToast(`Gagal eksekusi pasar: ${data.error || JSON.stringify(data)}`, 'error');
+        }
+      } catch (err) {
+        showToast(`Koneksi error: ${err.message}`, 'error');
+      }
+    }
+
+    async function cancelRestingOrder(tradeId) {
+      if (!confirm(`Konfirmasi Pembatalan: Batalkan resting limit order #${tradeId} dari orderbook Bybit?`)) return;
+      showToast(`Membatalkan order #${tradeId}...`, 'info');
+      try {
+        const res = await fetch('/api/cancel_order', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ trade_id: tradeId })
+        });
+        const data = await res.json();
+        if (res.ok) {
+          showToast(`Order #${tradeId} BERHASIL DIBATALKAN dari Bybit!`, 'success');
+          setTimeout(fetchData, 800);
+        } else {
+          showToast(`Gagal batalkan order: ${data.error || JSON.stringify(data)}`, 'error');
+        }
+      } catch (err) {
+        showToast(`Koneksi error: ${err.message}`, 'error');
+      }
+    }
+
+    async function marketFillOrder(tradeId, pair, stake) {
+      if (!confirm(`Konfirmasi Eksekusi Pasar: Batalkan antrean limit dan eksekusi MARKET FILL langsung untuk ${pair}?`)) return;
+      showToast(`Mengeksekusi Market Fill untuk ${pair}...`, 'info');
+      try {
+        const res = await fetch('/api/market_fill', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ trade_id: tradeId, pair: pair, stakeamount: stake || 314.0 })
+        });
+        const data = await res.json();
+        if (res.ok) {
+          showToast(`Market Fill ${pair} BERHASIL dieksekusi!`, 'success');
+          setTimeout(fetchData, 800);
+        } else {
+          showToast(`Gagal: ${data.error || JSON.stringify(data)}`, 'error');
+        }
+      } catch (err) {
+        showToast(`Koneksi error: ${err.message}`, 'error');
+      }
+    }
+
+    async function forceExitPosition(tradeId) {
+      if (!confirm(`Konfirmasi Tutup Posisi: Tutup posisi trade #${tradeId} sekarang pada harga pasar (Market Exit)?`)) return;
+      showToast(`Menutup posisi trade #${tradeId}...`, 'info');
+      try {
+        const res = await fetch('/api/forceexit', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ trade_id: tradeId, ordertype: 'market' })
+        });
+        const data = await res.json();
+        if (res.ok) {
+          showToast(`Posisi trade #${tradeId} berhasil ditutup!`, 'success');
+          setTimeout(fetchData, 800);
+        } else {
+          showToast(`Gagal tutup posisi: ${data.error || JSON.stringify(data)}`, 'error');
+        }
+      } catch (err) {
+        showToast(`Koneksi error: ${err.message}`, 'error');
+      }
+    }
+
+    // Backward compatibility alias
+    const simulateOrderFill = marketFillOrder;
+
+    function toggleAuditData(tradeId) {
+      const el = document.getElementById(`trade-audit-panel-${tradeId}`);
+      if (el) {
+        el.classList.toggle('hidden');
+      }
+    }
+
     // Clock & Cycle Countdown
     function updateClock() {
       const now = new Date();
@@ -820,6 +1264,26 @@
       const pfEl = document.getElementById('bm-kpi-pf');
       const ddEl = document.getElementById('bm-kpi-dd');
 
+      const badgeEl = document.getElementById('bm-badge-trades');
+      const bannerDesc = document.getElementById('bm-banner-desc');
+      const tableTitle = document.getElementById('bm-table-title');
+
+      if (badgeEl && summary.total_wins !== undefined && summary.total_losses !== undefined) {
+        const total = (summary.total_wins || 0) + (summary.total_losses || 0);
+        badgeEl.textContent = `${total} TRADES AUDITED (MODEL C TRUE OPTIMIZED)`;
+      }
+
+      if (bannerDesc && summary.initial_balance !== undefined && summary.final_balance !== undefined) {
+        const profitAbs = summary.total_profit_abs !== undefined ? summary.total_profit_abs : (summary.final_balance - summary.initial_balance);
+        const profitPct = summary.total_profit_pct !== undefined ? summary.total_profit_pct : ((profitAbs / summary.initial_balance) * 100);
+        bannerDesc.innerHTML = `Hasil verifikasi kuantitatif out-of-sample pada data pasar riil Bybit Futures. <strong class="text-emerald-400">+${Number(profitPct).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}% Return Bersih (+${Number(profitAbs).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})} USDT)</strong> dari modal uji $${Number(summary.initial_balance).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})} USDT.`;
+      }
+
+      if (tableTitle && summary.total_wins !== undefined && summary.total_losses !== undefined) {
+        const total = (summary.total_wins || 0) + (summary.total_losses || 0);
+        tableTitle.textContent = `Log Audit Lengkap ${total} Trades Benchmark (${summary.strategy_name || 'Model C True Optimized'})`;
+      }
+
       if (eqEl && summary.initial_balance !== undefined && summary.final_balance !== undefined) {
         eqEl.innerHTML = `$${Number(summary.initial_balance).toFixed(2)} ➔ <span class="text-emerald-400">$${Number(summary.final_balance).toFixed(2)}</span>`;
       }
@@ -836,14 +1300,16 @@
         pfEl.innerHTML = `${Number(summary.profit_factor).toFixed(2)} <span class="text-xs font-medium text-cyan-400 font-sans">(Fee-Proof)</span>`;
       }
       if (ddEl && summary.max_drawdown_pct !== undefined) {
-        ddEl.innerHTML = `${Number(summary.max_drawdown_pct).toFixed(2)}% <span class="text-xs font-normal text-slate-400 font-sans">(${summary.drawdown_recovery_days || 16} Hari)</span>`;
+        ddEl.innerHTML = `${Number(summary.max_drawdown_pct).toFixed(2)}% <span class="text-xs font-normal text-slate-400 font-sans">(${summary.drawdown_recovery_days || 14} Hari)</span>`;
       }
 
       // Render Dynamic Exit Breakdown
       const exitContainer = document.getElementById('bm-exit-breakdown-container');
       if (exitContainer && summary.exit_counts) {
         const counts = summary.exit_counts;
-        const total = summary.total_trades_count || 464;
+        const total = summary.total_trades_count || (summary.total_wins && summary.total_losses ? (summary.total_wins + summary.total_losses) : 705);
+        const exitTotalEl = document.getElementById('bm-exit-total');
+        if (exitTotalEl) exitTotalEl.textContent = `${total} Total`;
         const timeDecayTotal = (counts['time_decay_stale_loss'] || 0) + (counts['time_decay_48h_cutoff'] || 0);
         
         const categories = [
@@ -889,18 +1355,33 @@
     function renderLiveSimulationData(liveData, radarList, fullData) {
       if (!liveData) return;
 
-      // KPIs
+      // Card 1: Total Ekuitas Dinamis (Live Real-Time Scaling)
       const balVal = Number(liveData.wallet_balance !== undefined ? liveData.wallet_balance : 1000);
-      const freeVal = Number(liveData.free_collateral !== undefined ? liveData.free_collateral : 1000);
-      document.getElementById('live-balance').innerHTML = `$${balVal.toFixed(2)} <span class="text-xs font-medium text-slate-400">USDT</span>`;
-      document.getElementById('live-free').textContent = `$${freeVal.toFixed(2)} USDT`;
+      const totalEquity = Number(liveData.total_equity !== undefined ? liveData.total_equity : (liveData.session_summary?.total_equity !== undefined ? liveData.session_summary.total_equity : (balVal + (liveData.floating_pnl_usd || 0))));
+      const equityPct = Number(liveData.equity_pnl_pct !== undefined ? liveData.equity_pnl_pct : (liveData.session_summary?.equity_pnl_pct !== undefined ? liveData.session_summary.equity_pnl_pct : (((totalEquity - 1000) / 1000) * 100)));
+      const freeVal = Number(liveData.equity_free_collateral !== undefined ? liveData.equity_free_collateral : (liveData.free_collateral !== undefined ? liveData.free_collateral : 1000));
       
+      const eqEl = document.getElementById('live-total-equity');
+      const eqBar = document.getElementById('live-equity-bar');
+      const eqColor = totalEquity >= 1000 ? 'text-emerald-400' : 'text-rose-400';
+      if (eqEl) {
+        eqEl.innerHTML = `<span>$${totalEquity.toFixed(2)}</span> <span class="text-xs font-bold text-slate-400">USDT</span> <span class="text-xs font-bold ${eqColor}">(${equityPct >= 0 ? '+' : ''}${equityPct.toFixed(2)}%)</span>`;
+      }
+      const wbEl = document.getElementById('live-wallet-balance');
+      if (wbEl) wbEl.textContent = `$${balVal.toFixed(2)} USDT`;
+      const freeEl = document.getElementById('live-free');
+      if (freeEl) freeEl.textContent = `$${freeVal.toFixed(2)} USDT`;
+      if (eqBar) {
+        eqBar.className = totalEquity >= 1000 ? 'absolute bottom-0 left-0 right-0 h-1 bg-gradient-to-r from-emerald-500 to-teal-500' : 'absolute bottom-0 left-0 right-0 h-1 bg-gradient-to-r from-rose-500 to-amber-500';
+      }
+      
+      // Card 2: Session Realized PnL
       const sessionPnl = liveData.session_pnl_usd || 0;
       const sessionPct = liveData.session_pnl_pct || 0;
       const pnlColor = sessionPnl >= 0 ? 'text-emerald-400' : 'text-rose-400';
       document.getElementById('live-session-pnl').innerHTML = `<span class="${pnlColor}">${sessionPnl >= 0 ? '+' : ''}$${sessionPnl.toFixed(2)}</span> <span class="text-xs font-medium text-slate-400">(${sessionPct >= 0 ? '+' : ''}${sessionPct.toFixed(2)}%)</span>`;
 
-      // Floating Unrealized PnL
+      // Card 3: Floating Unrealized PnL
       const floatPnl = liveData.floating_pnl_usd || 0;
       const floatPct = liveData.floating_pnl_pct || 0;
       const floatColor = floatPnl > 0 ? 'text-emerald-400' : (floatPnl < 0 ? 'text-rose-400' : 'text-slate-200');
@@ -914,8 +1395,16 @@
       document.getElementById('live-session-deals-badge').textContent = `${closedCount} Deals Selesai Hari Ini`;
 
       const openTrades = liveData.open_trades || [];
-      document.getElementById('live-open-slots').textContent = `${openTrades.length} / 2 Slots`;
-      document.getElementById('live-open-badge').textContent = `${openTrades.length} Open / 2 Max`;
+      const openSlotsEl = document.getElementById('live-open-slots');
+      if (openSlotsEl) openSlotsEl.textContent = `${openTrades.length} / 3 Slots (Dinamis)`;
+      const openBadgeEl = document.getElementById('live-open-badge');
+      if (openBadgeEl) openBadgeEl.textContent = `${openTrades.length} Open / 3 Max`;
+      const twSlotsEl = document.getElementById('tw-used-slots');
+      if (twSlotsEl) twSlotsEl.textContent = openTrades.length;
+      const twAiDesc = document.getElementById('tw-ai-slots-desc');
+      if (twAiDesc && liveData.ai_slots_available !== undefined) {
+        twAiDesc.textContent = `Dinamis: ${liveData.ai_slots_available} dari 3 Slot Terbuka`;
+      }
 
       if (liveData.start_time) {
         const stEl = document.getElementById('live-session-start');
@@ -929,60 +1418,439 @@
 
       // Render Open Trades Container
       const openContainer = document.getElementById('live-open-trades-container');
+      const currentTradeIds = openTrades.map(t => t.id).join(',');
+
       if (openTrades.length === 0) {
+        Object.keys(window._tradeChartInstances || {}).forEach(id => {
+          try {
+            window._tradeChartInstances[id].resizeObserver?.disconnect();
+            window._tradeChartInstances[id].chart?.remove();
+          } catch(e) {}
+          delete window._tradeChartInstances[id];
+        });
+        openContainer.dataset.renderedTradeIds = '';
         openContainer.innerHTML = `
-          <div class="p-8 text-center rounded-xl bg-[#0d111a]/50 border border-slate-800/60 flex flex-col items-center justify-center">
-            <div class="h-12 w-12 rounded-full bg-blue-500/10 flex items-center justify-center text-blue-400 mb-3">
-              <i data-lucide="radar" class="w-6 h-6 animate-spin" style="animation-duration: 6s;"></i>
+          <div class="p-6 text-center rounded-2xl bg-[#0d111a]/60 border border-slate-800/80 flex flex-col items-center justify-center relative overflow-hidden">
+            <div class="flex items-center gap-2 mb-2">
+              <span class="inline-block w-2.5 h-2.5 rounded-full bg-amber-400"></span>
+              <span class="text-xs font-bold uppercase tracking-widest text-amber-300">STATUS ORDERBOOK: STANDBY (0 Resting Limit Order)</span>
             </div>
-            <div class="text-sm font-bold text-slate-200">Radar Sinyal Sedang Memindai Pasar Real-Time</div>
-            <p class="text-xs text-slate-400 max-w-md mt-1">
-              Bot aktif memonitor penutupan candle 1H pada 7 koin Bybit Futures (BTC, ETH, SOL, ADA, DOGE, LINK, PAXG) dengan strategi ApexDualAlpha Omni V11 Ultimate.
+            <div class="text-base font-bold text-white">Belum Ada Limit Order yang Terpasang di Orderbook Bybit</div>
+            <p class="text-xs text-slate-400 max-w-xl mt-1.5 leading-relaxed">
+              AI Strategic Supervisor memantau 7 calon kandidat di bawah secara real-time. Resting maker limit order akan dipasang di Bybit Futures saat salah satu koin menguji lantai support 48 jam dengan konfirmasi wick rejection dan rasio proyeksi <strong class="text-amber-400">R:R ≥ 1.80:1</strong>.
             </p>
+            <div class="mt-4 flex flex-wrap items-center justify-center gap-3 text-[11px] mono text-slate-300 bg-slate-900/90 px-4 py-2 rounded-xl border border-slate-800">
+              <span>Alokasi Slot AI: <strong class="text-emerald-400">Dinamis (Hingga 3 Slot saat V11 Idle)</strong></span>
+              <span>•</span>
+              <span>Proteksi Kluster: <strong class="text-cyan-400">Max 1 Posisi per Kluster (Major / Alt / Gold)</strong></span>
+              <span>•</span>
+              <span>Audit Kandidat: <strong class="text-amber-400">7 Pasang di Radar Bawah</strong></span>
+            </div>
           </div>
         `;
       } else {
-        let html = '';
-        openTrades.forEach(t => {
-          const isShort = t.is_short;
-          const sideBadge = isShort ? 
-            '<span class="px-2 py-0.5 text-[10px] font-bold rounded bg-rose-500/10 text-rose-400 border border-rose-500/20">SHORT 3.0x</span>' :
-            '<span class="px-2 py-0.5 text-[10px] font-bold rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">LONG 3.0x</span>';
-          const pnl = (t.profit_ratio || 0) * 100 * 3.0;
-          const pnlColor = pnl >= 0 ? 'text-emerald-400' : 'text-rose-400';
+        const needFullRender = openContainer.dataset.renderedTradeIds !== currentTradeIds;
+        if (needFullRender) {
+          openContainer.dataset.renderedTradeIds = currentTradeIds;
+          let html = '';
+          openTrades.forEach(t => {
+            const isLimitOrder = Boolean(t.is_limit_order || Number(t.amount || 0) === 0);
+            const isShort = Boolean(t.is_short);
+            let sideBadge = '';
+            if (isLimitOrder) {
+              sideBadge = `<span class="px-2.5 py-1 text-[11px] font-extrabold rounded-md bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-sm shadow-amber-500/10 flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-amber-400 animate-ping inline-block"></span>RESTING LIMIT BUY ${t.leverage}x (MAKER)</span>`;
+            } else if (isShort) {
+              sideBadge = `<span class="px-2.5 py-1 text-[11px] font-bold rounded-md bg-rose-500/15 text-rose-400 border border-rose-500/30">SHORT ${t.leverage}x Isolated</span>`;
+            } else {
+              sideBadge = `<span class="px-2.5 py-1 text-[11px] font-bold rounded-md bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">LONG ${t.leverage}x Isolated</span>`;
+            }
+            
+            const openRate = Number(t.open_rate || t.limit_entry_price || 0);
+            const markRate = Number(t.close_rate || openRate);
+            const spotDiff = Number(t.spot_diff !== undefined ? t.spot_diff : (markRate - openRate));
+            const spotDiffPct = Number(t.spot_diff_pct !== undefined ? t.spot_diff_pct : (openRate > 0 ? (spotDiff / openRate * 100) : 0));
+            const distToFill = Number(t.distance_to_fill !== undefined ? t.distance_to_fill : Math.abs(markRate - openRate));
+            const distToFillPct = Number(t.distance_to_fill_pct !== undefined ? t.distance_to_fill_pct : (markRate > 0 ? (distToFill / markRate * 100) : 0));
+            const spotColor = spotDiff >= 0 ? 'text-emerald-400' : 'text-rose-400';
 
-          html += `
-            <div class="p-4 rounded-xl bg-[#0d111a] border border-slate-800 space-y-3 mb-3">
-              <div class="flex items-center justify-between">
-                <div class="flex items-center gap-2">
-                  <span class="font-bold text-white">${t.pair}</span>
-                  ${sideBadge}
+            const stakeAmt = Number(t.stake_amount || 314.0).toFixed(2);
+            const notionalAmt = Number(t.notional || (openRate * Number(t.amount || t.amount_requested || 0))).toFixed(2);
+            const coinAmount = Number(t.amount || t.amount_requested || (openRate > 0 ? (Number(notionalAmt) / openRate) : 0)).toFixed(4);
+            const coinSym = (t.pair || 'ETH').split('/')[0];
+            const durStr = t.duration_str || 'Baru saja';
+
+            const pnlAbs = Number(t.profit_abs !== undefined ? t.profit_abs : (t.profit_ratio || 0) * (t.stake_amount || 314.0) * (t.leverage || 3.0));
+            const pnlPct = Number(t.profit_pct !== undefined ? t.profit_pct : (t.profit_ratio || 0) * 100 * (t.leverage || 3.0));
+            const isProfit = pnlAbs >= 0;
+            const pnlColor = isProfit ? 'text-emerald-400' : 'text-rose-400';
+            const pnlSign = isProfit ? '+' : '';
+
+            // Top Header Displays
+            const topTitleText = isLimitOrder ? 
+              `Jarak ke Fill: $${formatDelta(distToFill, t.pair)}` : 
+              `${pnlSign}$${Math.abs(pnlAbs).toFixed(2)} USDT`;
+            const topSubText = isLimitOrder ? 
+              `(${distToFillPct.toFixed(2)}% dari Limit)` : 
+              `(${pnlSign}${pnlPct.toFixed(2)}% ROE)`;
+            const topDiffLine = isLimitOrder ?
+              `Lantai Limit Buy: $${formatPrice(openRate, t.pair)} • Bybit Terkini: $${formatPrice(markRate, t.pair)}` :
+              `Selisih Harga: ${spotDiff >= 0 ? '+' : ''}$${formatDelta(spotDiff, t.pair)} (${spotDiffPct >= 0 ? '+' : ''}${spotDiffPct.toFixed(2)}% Spot)`;
+
+            const tpPrice16 = Number(t.tp_price_16 || (openRate * 1.0537));
+            const tpUsd16 = Number(t.tp_usd_16 || (Number(stakeAmt) * 0.161)).toFixed(2);
+            const tpPrice52 = Number(t.tp_price_52 || (openRate * 1.1753));
+            const tpUsd52 = Number(t.tp_usd_52 || (Number(stakeAmt) * 0.526)).toFixed(2);
+
+            const slStalePrice = Number(t.sl_stale_price || (openRate * 0.990));
+            const slStaleUsd = Math.abs(Number(t.sl_stale_usd || (Number(stakeAmt) * 0.030))).toFixed(2);
+            const slEmergPrice = Number(t.sl_emerg_price || (openRate * 0.901));
+            const slEmergUsd = Math.abs(Number(t.sl_emerg_usd || (Number(stakeAmt) * 0.297))).toFixed(2);
+
+            // Needle calculations
+            let prog = 50;
+            if (isLimitOrder) {
+              prog = Math.max(5, Math.min(95, 100 - (distToFillPct * 8)));
+            } else {
+              const minP = Number(slEmergPrice);
+              const maxP = Number(tpPrice16);
+              if (maxP > minP) {
+                prog = ((markRate - minP) / (maxP - minP)) * 100;
+                prog = Math.max(4, Math.min(96, prog));
+              }
+            }
+
+            html += `
+              <div id="trade-card-${t.id}" class="p-5 rounded-2xl bg-[#0d111a] ${isLimitOrder ? 'border-2 border-amber-500/40 shadow-amber-500/5' : 'border border-slate-800/90'} shadow-xl space-y-4 mb-4">
+                <!-- TOP BAR -->
+                <div class="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-slate-800/70">
+                  <div class="flex flex-wrap items-center gap-2.5">
+                    <span class="text-base font-black text-white tracking-wide">${t.pair}</span>
+                    ${sideBadge}
+                    <span class="px-2 py-0.5 text-[10px] font-semibold rounded bg-slate-800 text-slate-300 border border-slate-700">Order ID: ${t.order_id || '#' + t.id}</span>
+                    <span class="px-2 py-0.5 text-[10px] font-semibold rounded ${isLimitOrder ? 'bg-amber-500/10 text-amber-300 border border-amber-500/20' : 'bg-blue-500/10 text-blue-300 border border-blue-500/20'}" id="trade-dur-${t.id}">${durStr}</span>
+                  </div>
+                  <div class="flex items-center gap-3">
+                    <div class="flex items-center gap-2">
+                      ${isLimitOrder ? `
+                        <button onclick="cancelRestingOrder(${t.id})" class="px-3 py-1.5 rounded-lg bg-rose-500/20 hover:bg-rose-500/35 text-rose-300 border border-rose-500/40 text-xs font-bold transition flex items-center gap-1.5 shadow-sm shadow-rose-500/10" title="Batalkan resting limit order dari orderbook Bybit">
+                          <span>Batalkan Order</span>
+                        </button>
+                        <button onclick="marketFillOrder(${t.id}, '${t.pair}', ${t.stake_amount || 314.0})" class="px-3 py-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/35 text-emerald-300 border border-emerald-500/40 text-xs font-bold transition flex items-center gap-1.5 shadow-sm shadow-emerald-500/10" title="Eksekusi market fill instan">
+                          <span>Eksekusi Fill Pasar</span>
+                        </button>
+                      ` : `
+                        <button onclick="forceExitPosition(${t.id})" class="px-3 py-1.5 rounded-lg bg-rose-500/20 hover:bg-rose-500/35 text-rose-300 border border-rose-500/40 text-xs font-bold transition flex items-center gap-1.5 shadow-sm shadow-rose-500/10" title="Tutup posisi sekarang di harga pasar">
+                          <span>Tutup Posisi (Market Exit)</span>
+                        </button>
+                      `}
+                      <button onclick="toggleAuditData(${t.id})" class="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-xs font-bold transition flex items-center gap-1" title="Lihat bukti transparan SQLite & REST API">
+                        <span>Bukti SQLite</span>
+                      </button>
+                    </div>
+                    <div class="text-right">
+                      <div class="text-lg font-black mono ${isLimitOrder ? 'text-amber-400' : pnlColor} flex items-center justify-end gap-1.5" id="trade-pnl-top-${t.id}">
+                        <span id="trade-dollar-${t.id}">${topTitleText}</span>
+                        <span class="text-xs font-bold opacity-80" id="trade-pct-${t.id}">${topSubText}</span>
+                      </div>
+                      <div class="text-[11px] mono ${isLimitOrder ? 'text-amber-400/90' : spotColor}" id="trade-spot-diff-top-${t.id}">
+                        ${topDiffLine}
+                      </div>
+                    </div>
+                  </div>
                 </div>
-                <div class="text-right">
-                  <span class="text-xs font-bold ${pnlColor} mono">${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)}%</span>
+
+                <!-- TRANSPARENT SQLITE & REST AUDIT DRAWER -->
+                <div id="trade-audit-panel-${t.id}" class="hidden p-4 rounded-xl bg-[#06080d] border border-amber-500/30 space-y-2 text-xs mono">
+                  <div class="flex items-center justify-between text-amber-300 font-bold pb-1 border-b border-slate-800">
+                    <span>BUKTI TRANSPARANSI: SQLite &amp; REST Orderbook Status</span>
+                    <span class="text-[10px] text-slate-400">Database: user_data/tradesv3.dryrun.sqlite</span>
+                  </div>
+                  <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-[11px] pt-1">
+                    <div class="p-2.5 rounded-lg bg-slate-900/80 border border-slate-800 space-y-1">
+                      <div class="text-slate-400 font-bold uppercase text-[10px]">Tabel SQLite: trades (Trade #${t.id})</div>
+                      <div class="text-slate-300">Pair: <strong class="text-white">${t.pair}</strong> • is_open: <strong class="text-emerald-400">${t.is_open ? '1 (TRUE)' : '0'}</strong></div>
+                      <div class="text-slate-300">Status Amount: <strong class="${isLimitOrder ? 'text-amber-400' : 'text-emerald-400'}">${t.amount || '0.0000 (Unfilled Resting)'}</strong></div>
+                      <div class="text-slate-300">Open Rate: <strong class="text-white">$${formatPrice(openRate, t.pair)}</strong> • Stake: <strong class="text-white">$${stakeAmt} USDT</strong></div>
+                      <div class="text-slate-300">Strategy: <strong class="text-cyan-400">${t.strategy || 'ApexDualAlpha_Omni_V11_OptionB'}</strong></div>
+                    </div>
+                    <div class="p-2.5 rounded-lg bg-slate-900/80 border border-slate-800 space-y-1">
+                      <div class="text-slate-400 font-bold uppercase text-[10px]">Tabel SQLite: orders (Order #${t.order_id || '#' + t.id})</div>
+                      <div class="text-slate-300">Order ID: <strong class="text-amber-300 text-[10px]">${t.order_id || 'dry_run_maker_' + t.id}</strong></div>
+                      <div class="text-slate-300">Tipe / Side: <strong class="text-white">${(t.order_type || 'limit').toUpperCase()} ${(t.is_short ? 'SELL' : 'BUY')}</strong></div>
+                      <div class="text-slate-300">Status Orderbook: <strong class="${isLimitOrder ? 'text-amber-400' : 'text-emerald-400'}">${t.order_status || (isLimitOrder ? 'RESTING LIMIT ORDER' : 'FILLED')}</strong></div>
+                      <div class="text-slate-300">Keterangan: <strong class="text-slate-200">${isLimitOrder ? 'Resting Maker Post-Only di Orderbook Bybit' : 'Terisi Penuh (Position Active)'}</strong></div>
+                    </div>
+                  </div>
                 </div>
+
+                <!-- LIVE STATUS PILL -->
+                <div id="trade-status-pill-${t.id}" class="flex items-center justify-between px-3 py-2 rounded-lg ${isLimitOrder ? 'bg-amber-950/40 border border-amber-500/40' : (isProfit ? 'bg-emerald-950/40 border border-emerald-500/30' : 'bg-rose-950/40 border border-rose-500/30')} text-xs">
+                  <div class="flex items-center gap-2 font-semibold ${isLimitOrder ? 'text-amber-300' : (isProfit ? 'text-emerald-300' : 'text-rose-300')}" id="trade-status-text-${t.id}">
+                    <span class="w-2.5 h-2.5 rounded-full ${isLimitOrder ? 'bg-amber-400 animate-ping' : (isProfit ? 'bg-emerald-400 animate-pulse' : 'bg-rose-400 animate-pulse')}"></span>
+                    <span>${isLimitOrder ? 'RESTING LIMIT ORDER: Terpasang di Orderbook Bybit (Menunggu Fill @ $' + formatPrice(openRate, t.pair) + ')' : (isProfit ? 'Posisi Sedang Floating Untung (+ ' + topTitleText + ')' : 'Posisi Sedang Floating Minus (' + topTitleText + ') - Koreksi Wajar')}</span>
+                  </div>
+                  <div class="text-slate-400 text-[11px] mono">
+                    Harga Bybit Terkini: <strong class="text-slate-200" id="trade-status-mark-${t.id}">$${formatPrice(markRate, t.pair)}</strong>
+                  </div>
+                </div>
+
+                <!-- SPECIFICATION METRICS GRID -->
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs mono">
+                  <div class="p-3 rounded-xl bg-slate-900/70 border border-slate-800/80">
+                    <div class="text-[10px] uppercase font-bold text-slate-400 mb-0.5">${isLimitOrder ? 'Harga Limit Order (Maker)' : 'Harga Entri (Beli)'}</div>
+                    <div class="text-sm font-bold text-white">$${formatPrice(openRate, t.pair)}</div>
+                    <div class="text-[10px] ${isLimitOrder ? 'text-amber-400' : 'text-slate-500'} mt-0.5">${isLimitOrder ? 'Terpasang di Bybit' : 'Basis Kalkulasi PnL'}</div>
+                  </div>
+                  <div class="p-3 rounded-xl bg-slate-900/70 border border-slate-800/80">
+                    <div class="text-[10px] uppercase font-bold text-slate-400 mb-0.5">Harga Pasar Bybit Terkini</div>
+                    <div class="text-sm font-bold text-cyan-400" id="trade-spec-mark-${t.id}">$${formatPrice(markRate, t.pair)}</div>
+                    <div class="text-[10px] ${isLimitOrder ? 'text-amber-400' : spotColor} mt-0.5" id="trade-spec-diff-${t.id}">${isLimitOrder ? 'Jarak ke Fill: $' + formatDelta(distToFill, t.pair) + ' (' + distToFillPct.toFixed(2) + '%)' : (spotDiff >= 0 ? '+' : '') + '$' + formatDelta(spotDiff, t.pair) + ' (' + (spotDiffPct >= 0 ? '+' : '') + spotDiffPct.toFixed(2) + '%)'}</div>
+                  </div>
+                  <div class="p-3 rounded-xl bg-slate-900/70 border border-slate-800/80">
+                    <div class="text-[10px] uppercase font-bold text-slate-400 mb-0.5">Modal Margin Terkunci</div>
+                    <div class="text-sm font-bold text-slate-200">$${stakeAmt} <span class="text-[10px] text-slate-400 font-normal">USDT</span></div>
+                    <div class="text-[10px] text-slate-500 mt-0.5">Jaminan ${t.leverage || 3.0}x Isolated</div>
+                  </div>
+                  <div class="p-3 rounded-xl bg-slate-900/70 border border-slate-800/80">
+                    <div class="text-[10px] uppercase font-bold text-slate-400 mb-0.5">Ukuran Kontrak Notional</div>
+                    <div class="text-sm font-bold text-slate-200">${coinAmount} <span class="text-[10px] text-slate-400 font-normal">${coinSym}</span></div>
+                    <div class="text-[10px] text-slate-500 mt-0.5" id="trade-spec-notional-${t.id}">Nilai Total: ~$${notionalAmt} USD</div>
+                  </div>
+                </div>
+
+                <!-- TRANSPARENT TARGETS & RISK LEVELS TABLE -->
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
+                  <!-- TAKE PROFIT TARGETS -->
+                  <div class="p-3 rounded-xl bg-emerald-950/20 border border-emerald-500/20 space-y-2">
+                    <div class="flex items-center justify-between text-[11px] font-bold text-emerald-400">
+                      <span>TARGET TAKE PROFIT</span>
+                      <span>POTENSI HASIL</span>
+                    </div>
+                    <div class="flex justify-between text-xs mono">
+                      <span class="text-slate-300">Level 1 (ROI +16.1% @ 7.8h): <strong class="text-white">$${formatPrice(tpPrice16, t.pair)}</strong></span>
+                      <span class="text-emerald-400 font-bold">+ $${tpUsd16} USDT</span>
+                    </div>
+                    <div class="flex justify-between text-xs mono">
+                      <span class="text-slate-300">Level 2 (Impulse +52.6%): <strong class="text-white">$${formatPrice(tpPrice52, t.pair)}</strong></span>
+                      <span class="text-emerald-400 font-bold">+ $${tpUsd52} USDT</span>
+                    </div>
+                  </div>
+
+                  <!-- STOP LOSS & PROTECTION LEVELS -->
+                  <div class="p-3 rounded-xl bg-rose-950/20 border border-rose-500/20 space-y-2">
+                    <div class="flex items-center justify-between text-[11px] font-bold text-rose-400">
+                      <span>BATAS PROTEKSI RISIKO</span>
+                      <span>BATAS KERUGIAN</span>
+                    </div>
+                    <div class="flex justify-between text-xs mono">
+                      <span class="text-slate-300">Cutoff Stagnan (36 Jam &lt; -1%): <strong class="text-white">$${formatPrice(slStalePrice, t.pair)}</strong></span>
+                      <span class="text-amber-400 font-bold">- $${slStaleUsd} USDT</span>
+                    </div>
+                    <div class="flex justify-between text-xs mono">
+                      <span class="text-slate-300">Darurat Likuidasi (-29.7% ROI): <strong class="text-white">$${formatPrice(slEmergPrice, t.pair)}</strong></span>
+                      <span class="text-rose-400 font-bold">- $${slEmergUsd} USDT</span>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- REAL DYNAMIC TRAJECTORY BAR -->
+                <div class="pt-2">
+                  <div class="flex justify-between text-[11px] mono text-slate-400 mb-1.5 font-semibold">
+                    ${isLimitOrder ? `
+                      <span class="text-slate-300" id="trade-bar-left-${t.id}">Harga Pasar: $${formatPrice(markRate, t.pair)}</span>
+                      <span class="text-amber-400 font-bold px-2 py-0.5 rounded bg-amber-500/10 border border-amber-500/20" id="trade-bar-mid-${t.id}">Jarak ke Fill: $${formatDelta(distToFill, t.pair)} (${distToFillPct.toFixed(2)}%)</span>
+                      <span class="text-amber-300 font-bold" id="trade-bar-right-${t.id}">Lantai Limit: $${formatPrice(openRate, t.pair)}</span>
+                    ` : `
+                      <span class="text-rose-400" id="trade-bar-left-${t.id}">Darurat SL: $${formatPrice(slEmergPrice, t.pair)} (-$${slEmergUsd})</span>
+                      <span class="text-slate-300" id="trade-bar-mid-${t.id}">Entri: $${formatPrice(openRate, t.pair)}</span>
+                      <span class="text-emerald-400" id="trade-bar-right-${t.id}">Target TP: $${formatPrice(tpPrice16, t.pair)} (+$${tpUsd16})</span>
+                    `}
+                  </div>
+                  <div class="relative w-full bg-slate-900 h-3.5 rounded-full border border-slate-800 overflow-hidden flex items-center">
+                    ${isLimitOrder ? `
+                      <div class="bg-slate-700/40 h-full" style="width: 50%" title="Zona Jauh dari Limit"></div>
+                      <div class="bg-blue-500/30 h-full" style="width: 30%" title="Zona Pendekatan Limit"></div>
+                      <div class="bg-amber-500/40 h-full" style="width: 20%" title="Zona Eksekusi Fill Limit"></div>
+                      <div id="trade-needle-${t.id}" class="absolute top-0 bottom-0 w-3.5 bg-amber-400 border-2 border-white rounded-full shadow-lg shadow-amber-500/50 transition-all duration-500 -ml-1.5" style="left: ${prog}%" title="Posisi Harga Saat Ini: $${formatPrice(markRate, t.pair)}"></div>
+                    ` : `
+                      <div class="bg-rose-500/30 h-full" style="width: 30%"></div>
+                      <div class="bg-blue-500/30 h-full" style="width: 40%"></div>
+                      <div class="bg-emerald-500/30 h-full" style="width: 30%"></div>
+                      <div id="trade-needle-${t.id}" class="absolute top-0 bottom-0 w-3.5 bg-cyan-400 border-2 border-white rounded-full shadow-lg transition-all duration-500 -ml-1.5" style="left: ${prog}%" title="Posisi Harga Saat Ini: $${formatPrice(markRate, t.pair)}"></div>
+                    `}
+                  </div>
+                  <div class="flex justify-between items-center text-[10px] text-slate-400 mt-1.5">
+                    ${isLimitOrder ? `
+                      <span id="trade-dist-sl-${t.id}">Antrean: <strong class="text-slate-200">Maker Post-Only (Fee Rebate/0%)</strong></span>
+                      <span class="mono text-amber-400 font-bold" id="trade-cursor-label-${t.id}">Kursor Harga Real-Time: $${formatPrice(markRate, t.pair)}</span>
+                      <span id="trade-dist-tp-${t.id}">Target Eksekusi: <strong class="text-amber-300">Auto-Fill @ $${formatPrice(openRate, t.pair)}</strong></span>
+                    ` : `
+                      <span id="trade-dist-sl-${t.id}">Jarak ke Stop Loss: <strong class="text-slate-200">$${formatDelta(markRate - Number(slEmergPrice), t.pair)}</strong> (Aman)</span>
+                      <span class="mono text-cyan-400 font-bold" id="trade-cursor-label-${t.id}">Kursor Harga Real-Time: $${formatPrice(markRate, t.pair)}</span>
+                      <span id="trade-dist-tp-${t.id}">Jarak ke Target TP: <strong class="text-slate-200">$${formatDelta(Number(tpPrice16) - markRate, t.pair)}</strong></span>
+                    `}
+                  </div>
+                </div>
+
+                <!-- VISUAL CANDLESTICK CHART & EXECUTION TARGET LINES -->
+                <div class="mt-4 p-4 rounded-xl bg-[#080b11] border border-slate-800/80 space-y-3">
+                  <div class="flex flex-wrap items-center justify-between gap-3 pb-2 border-b border-slate-800/70">
+                    <div class="flex items-center gap-2">
+                      <i data-lucide="candlestick-chart" class="w-4 h-4 text-cyan-400"></i>
+                      <span class="text-xs font-bold text-white tracking-wide">Live Candlestick Chart &amp; Visual Target Lines (${t.pair})</span>
+                      <span class="px-2 py-0.5 text-[10px] font-bold rounded bg-cyan-500/10 text-cyan-400 border border-cyan-500/20" id="trade-chart-tf-label-${t.id}">1H Bybit Linear Feed</span>
+                    </div>
+                    <div class="flex items-center gap-2">
+                      <span class="text-[11px] text-slate-400 mono">Timeframe:</span>
+                      <div class="flex items-center bg-slate-900 rounded-lg p-0.5 border border-slate-800 text-[11px] font-bold mono">
+                        <button onclick="switchTradeChartTimeframe('${t.pair}', ${t.id}, '15m')" class="px-2.5 py-1 rounded text-slate-400 hover:text-white transition" id="btn-tf-${t.id}-15m">15m</button>
+                        <button onclick="switchTradeChartTimeframe('${t.pair}', ${t.id}, '1h')" class="px-2.5 py-1 rounded bg-blue-600 text-white transition shadow shadow-blue-600/30" id="btn-tf-${t.id}-1h">1H</button>
+                        <button onclick="switchTradeChartTimeframe('${t.pair}', ${t.id}, '4h')" class="px-2.5 py-1 rounded text-slate-400 hover:text-white transition" id="btn-tf-${t.id}-4h">4H</button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Price Legend Tags -->
+                  <div class="flex flex-wrap items-center gap-x-4 gap-y-2 text-[11px] mono pt-1 pb-1">
+                    <div class="flex items-center gap-1.5">
+                      <span class="w-3 h-1 bg-cyan-400 rounded-full inline-block"></span>
+                      <span class="text-slate-400">Entri Beli:</span>
+                      <strong class="text-white">$${formatPrice(openRate, t.pair)}</strong>
+                    </div>
+                    <div class="flex items-center gap-1.5">
+                      <span class="w-3 h-1 bg-emerald-400 rounded-full inline-block"></span>
+                      <span class="text-slate-400">Target TP 1 (+16.1%):</span>
+                      <strong class="text-emerald-400">$${formatPrice(tpPrice16, t.pair)} (+$${tpUsd16})</strong>
+                    </div>
+                    <div class="flex items-center gap-1.5">
+                      <span class="w-3 h-1 bg-teal-400 rounded-full inline-block"></span>
+                      <span class="text-slate-400">Target TP 2 (+52.6%):</span>
+                      <strong class="text-teal-400">$${formatPrice(tpPrice52, t.pair)} (+$${tpUsd52})</strong>
+                    </div>
+                    <div class="flex items-center gap-1.5">
+                      <span class="w-3 h-1 bg-amber-400 rounded-full inline-block"></span>
+                      <span class="text-slate-400">Cutoff Stale (36h):</span>
+                      <strong class="text-amber-400">$${formatPrice(slStalePrice, t.pair)} (-$${slStaleUsd})</strong>
+                    </div>
+                    <div class="flex items-center gap-1.5">
+                      <span class="w-3 h-1 bg-rose-500 rounded-full inline-block"></span>
+                      <span class="text-slate-400">Stop Loss Darurat:</span>
+                      <strong class="text-rose-400">$${formatPrice(slEmergPrice, t.pair)} (-$${slEmergUsd})</strong>
+                    </div>
+                  </div>
+
+                  <!-- Candlestick Canvas Container -->
+                  <div id="trade-chart-container-${t.id}" class="w-full h-[360px] rounded-lg overflow-hidden relative border border-slate-800/60 bg-[#07090e]">
+                    <div class="absolute inset-0 flex items-center justify-center text-xs text-slate-500 font-medium" id="chart-loader-${t.id}">
+                      <span class="animate-pulse">Menghubungkan chart real-time Bybit...</span>
+                    </div>
+                  </div>
+                </div>
+
               </div>
-              <div class="grid grid-cols-3 gap-2 text-xs mono text-slate-400">
-                <div>Entry: <strong class="text-slate-200">$${Number(t.open_rate).toFixed(4)}</strong></div>
-                <div>Mark: <strong class="text-slate-200">$${Number(t.close_rate || t.open_rate).toFixed(4)}</strong></div>
-                <div>SL: <strong class="text-rose-400">-29.7%</strong> | TP: <strong class="text-emerald-400">+16.1%</strong></div>
-              </div>
-              <div>
-                <div class="flex justify-between text-[10px] text-slate-400 mb-1">
-                  <span class="text-rose-400">Stop Loss (-29.7%)</span>
-                  <span class="text-slate-300">Trajectory Bar</span>
-                  <span class="text-emerald-400">Take Profit (+16.1%)</span>
-                </div>
-                <div class="w-full bg-slate-800 h-2 rounded-full overflow-hidden flex">
-                  <div class="bg-rose-500 h-full" style="width: 35%"></div>
-                  <div class="bg-blue-500 h-full" style="width: 30%"></div>
-                  <div class="bg-emerald-500 h-full" style="width: 35%"></div>
-                </div>
-              </div>
-            </div>
-          `;
+            `;
+          });
+          openContainer.innerHTML = html;
+          if (window.lucide) {
+            try { lucide.createIcons(); } catch (e) {}
+          }
+        } else {
+          // In-place dynamic updates to prevent chart flashing
+          openTrades.forEach(t => {
+            const isLimitOrder = Boolean(t.is_limit_order || Number(t.amount || 0) === 0);
+            const isShort = Boolean(t.is_short);
+            const openRate = Number(t.open_rate || t.limit_entry_price || 0);
+            const markRate = Number(t.close_rate || openRate);
+            const spotDiff = Number(t.spot_diff !== undefined ? t.spot_diff : (markRate - openRate));
+            const spotDiffPct = Number(t.spot_diff_pct !== undefined ? t.spot_diff_pct : (openRate > 0 ? (spotDiff / openRate * 100) : 0));
+            const distToFill = Number(t.distance_to_fill !== undefined ? t.distance_to_fill : Math.abs(markRate - openRate));
+            const distToFillPct = Number(t.distance_to_fill_pct !== undefined ? t.distance_to_fill_pct : (markRate > 0 ? (distToFill / markRate * 100) : 0));
+            const spotColor = spotDiff >= 0 ? 'text-emerald-400' : 'text-rose-400';
+
+            const pnlAbs = Number(t.profit_abs !== undefined ? t.profit_abs : (t.profit_ratio || 0) * (t.stake_amount || 314.0) * (t.leverage || 3.0));
+            const pnlPct = Number(t.profit_pct !== undefined ? t.profit_pct : (t.profit_ratio || 0) * 100 * (t.leverage || 3.0));
+            const isProfit = pnlAbs >= 0;
+            const pnlColor = isProfit ? 'text-emerald-400' : 'text-rose-400';
+            const pnlSign = isProfit ? '+' : '';
+
+            const topTitleText = isLimitOrder ? 
+              `Jarak ke Fill: $${formatDelta(distToFill, t.pair)}` : 
+              `${pnlSign}$${Math.abs(pnlAbs).toFixed(2)} USDT`;
+            const topSubText = isLimitOrder ? 
+              `(${distToFillPct.toFixed(2)}% dari Limit)` : 
+              `(${pnlSign}${pnlPct.toFixed(2)}% ROE)`;
+
+            const dEl = document.getElementById(`trade-dollar-${t.id}`);
+            if (dEl) dEl.textContent = topTitleText;
+            const pEl = document.getElementById(`trade-pct-${t.id}`);
+            if (pEl) pEl.textContent = topSubText;
+            const topPnlEl = document.getElementById(`trade-pnl-top-${t.id}`);
+            if (topPnlEl) topPnlEl.className = `text-lg font-black mono ${isLimitOrder ? 'text-amber-400' : pnlColor} flex items-center justify-end gap-1.5`;
+
+            const sdEl = document.getElementById(`trade-spot-diff-top-${t.id}`);
+            if (sdEl) {
+              sdEl.className = `text-[11px] mono ${isLimitOrder ? 'text-amber-400/90' : spotColor}`;
+              sdEl.textContent = isLimitOrder ? 
+                `Lantai Limit Buy: $${formatPrice(openRate, t.pair)} • Bybit Terkini: $${formatPrice(markRate, t.pair)}` :
+                `Selisih Harga: ${spotDiff >= 0 ? '+' : ''}$${formatDelta(spotDiff, t.pair)} (${spotDiffPct >= 0 ? '+' : ''}${spotDiffPct.toFixed(2)}% Spot)`;
+            }
+
+            const pillEl = document.getElementById(`trade-status-pill-${t.id}`);
+            if (pillEl) {
+              pillEl.className = `flex items-center justify-between px-3 py-2 rounded-lg ${isLimitOrder ? 'bg-amber-950/40 border border-amber-500/40' : (isProfit ? 'bg-emerald-950/40 border border-emerald-500/30' : 'bg-rose-950/40 border border-rose-500/30')} text-xs`;
+            }
+            const pillText = document.getElementById(`trade-status-text-${t.id}`);
+            if (pillText) {
+              if (isLimitOrder) {
+                pillText.className = 'flex items-center gap-2 font-semibold text-amber-300';
+                pillText.innerHTML = `<span class="w-2.5 h-2.5 rounded-full bg-amber-400 animate-ping"></span><span>RESTING LIMIT ORDER: Terpasang di Orderbook Bybit (Menunggu Fill @ $${formatPrice(openRate, t.pair)})</span>`;
+              } else {
+                pillText.className = `flex items-center gap-2 font-semibold ${isProfit ? 'text-emerald-300' : 'text-rose-300'}`;
+                pillText.innerHTML = `<span class="w-2.5 h-2.5 rounded-full ${isProfit ? 'bg-emerald-400' : 'bg-rose-400'} animate-pulse"></span><span>${isProfit ? 'Posisi Sedang Floating Untung (+ ' + topTitleText + ')' : 'Posisi Sedang Floating Minus (' + topTitleText + ') - Koreksi Wajar'}</span>`;
+              }
+            }
+            const smEl = document.getElementById(`trade-status-mark-${t.id}`);
+            if (smEl) smEl.textContent = `$${formatPrice(markRate, t.pair)}`;
+
+            const specMark = document.getElementById(`trade-spec-mark-${t.id}`);
+            if (specMark) specMark.textContent = `$${formatPrice(markRate, t.pair)}`;
+            const specDiff = document.getElementById(`trade-spec-diff-${t.id}`);
+            if (specDiff) {
+              specDiff.className = `text-[10px] ${isLimitOrder ? 'text-amber-400' : spotColor} mt-0.5`;
+              specDiff.textContent = isLimitOrder ? 
+                `Jarak ke Fill: $${formatDelta(distToFill, t.pair)} (${distToFillPct.toFixed(2)}%)` : 
+                `${spotDiff >= 0 ? '+' : ''}$${formatDelta(spotDiff, t.pair)} (${spotDiffPct >= 0 ? '+' : ''}${spotDiffPct.toFixed(2)}%)`;
+            }
+
+            let prog = 50;
+            if (isLimitOrder) {
+              prog = Math.max(5, Math.min(95, 100 - (distToFillPct * 8)));
+            } else {
+              const slEmergPrice = Number(t.sl_emerg_price || (openRate * 0.901));
+              const tpPrice16 = Number(t.tp_price_16 || (openRate * 1.0537));
+              const minP = Number(slEmergPrice);
+              const maxP = Number(tpPrice16);
+              if (maxP > minP) {
+                prog = ((markRate - minP) / (maxP - minP)) * 100;
+                prog = Math.max(4, Math.min(96, prog));
+              }
+            }
+            const needle = document.getElementById(`trade-needle-${t.id}`);
+            if (needle) needle.style.left = `${prog}%`;
+            const curLbl = document.getElementById(`trade-cursor-label-${t.id}`);
+            if (curLbl) curLbl.textContent = `Kursor Harga Real-Time: $${formatPrice(markRate, t.pair)}`;
+
+            const leftLbl = document.getElementById(`trade-bar-left-${t.id}`);
+            if (leftLbl && isLimitOrder) leftLbl.textContent = `Harga Pasar: $${formatPrice(markRate, t.pair)}`;
+            const midLbl = document.getElementById(`trade-bar-mid-${t.id}`);
+            if (midLbl && isLimitOrder) midLbl.textContent = `Jarak ke Fill: $${formatDelta(distToFill, t.pair)} (${distToFillPct.toFixed(2)}%)`;
+          });
+        }
+
+        // Initialize or update the chart for each trade
+        openTrades.forEach(t => {
+          initOrUpdateTradeChart(t);
         });
-        openContainer.innerHTML = html;
       }
 
       // Render Radar Table
@@ -1012,7 +1880,11 @@
         radarTbody.innerHTML = rHtml;
       }
 
-      // Render Live Closed Trades Table (Strictly Session Aug 31)
+      // Render AI Strategic Supervisor Prospective Candidate Radar
+      const aiCandidates = fullData?.ai_candidate_radar || liveData?.ai_candidate_radar || [];
+      renderAICandidateRadar(aiCandidates);
+
+      // Render Live Closed Trades Table (Strictly Session Sept 2026)
       const closedTbody = document.getElementById('live-closed-tbody');
       const closedTrades = liveData.closed_trades || [];
       if (closedTbody) {
@@ -1050,6 +1922,418 @@
           });
           closedTbody.innerHTML = cHtml;
         }
+      }
+    }
+
+    // AI CANDIDATE RADAR INTERACTIVITY & RENDERING
+    window._currentCandFilter = 'all';
+    window._cachedAICandidates = [];
+
+    function setCandidateFilter(filterType) {
+      window._currentCandFilter = filterType;
+      ['all', 'squeeze', 'nearest', 'bull'].forEach(t => {
+        const btn = document.getElementById(`btn-cand-${t}`);
+        if (btn) {
+          if (t === filterType) {
+            btn.className = 'px-3 py-1 rounded-lg font-bold text-white bg-amber-500/25 border border-amber-500/40 transition shadow shadow-amber-500/10';
+          } else {
+            btn.className = 'px-3 py-1 rounded-lg font-medium text-slate-400 hover:text-white transition';
+          }
+        }
+      });
+      if (window._cachedAICandidates && window._cachedAICandidates.length > 0) {
+        renderAICandidateRadar(window._cachedAICandidates, true);
+      }
+    }
+
+    function renderAICandidateRadar(candidates, forceUpdate = false) {
+      if (!candidates || candidates.length === 0) return;
+      window._cachedAICandidates = candidates;
+      
+      const tbody = document.getElementById('ai-candidate-radar-tbody');
+      if (!tbody) return;
+
+      const badge = document.getElementById('ai-candidates-badge');
+      if (badge) {
+        badge.textContent = `${candidates.length} Koin Bybit Futures Dipindai Real-Time`;
+      }
+
+      let filtered = [...candidates];
+      if (window._currentCandFilter === 'squeeze') {
+        filtered = filtered.filter(c => c.is_squeeze);
+      } else if (window._currentCandFilter === 'nearest') {
+        filtered = filtered.sort((a, b) => a.dist_to_support_pct - b.dist_to_support_pct);
+      } else if (window._currentCandFilter === 'bull') {
+        filtered = filtered.sort((a, b) => (b.bull_conviction || 50) - (a.bull_conviction || 50));
+      }
+
+      let cHtml = '';
+      if (filtered.length === 0) {
+        cHtml = `
+          <tr>
+            <td colspan="11" class="py-8 text-center text-slate-500">
+              Tidak ada calon kandidat yang memenuhi filter '${window._currentCandFilter}'. Menampilkan seluruh 7 instrumen Bybit Futures.
+            </td>
+          </tr>
+        `;
+      } else {
+        filtered.forEach(c => {
+          const pairSym = c.pair.replace('/USDT:USDT', '').replace(':USDT', '');
+          const isBtc = pairSym === 'BTC';
+          const lev = c.leverage || (isBtc ? 7.0 : 3.0);
+          
+          // R:R styling
+          let rrClass = 'bg-slate-800 text-slate-300 border-slate-700';
+          if (c.rr_ratio >= 3.0) {
+            rrClass = 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30';
+          } else if (c.rr_ratio >= 1.8) {
+            rrClass = 'bg-amber-500/20 text-amber-300 border-amber-500/30';
+          }
+          
+          // Squeeze badge
+          const sqBadge = c.is_squeeze ? 
+            `<span class="px-1.5 py-0.5 text-[9px] font-extrabold uppercase tracking-widest rounded bg-purple-500/20 text-purple-300 border border-purple-500/30 ml-1">SQUEEZE</span>` : '';
+
+          // Stage badge
+          let stageBadge = '';
+          if (c.stage === 'READY_LIMIT') {
+            stageBadge = `<span class="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[10px] font-bold animate-pulse">SIAP LIMIT ENTRY</span>`;
+          } else if (c.stage === 'SQUEEZE_ACTIVE') {
+            stageBadge = `<span class="px-2 py-0.5 rounded bg-purple-500/20 text-purple-300 border border-purple-500/30 text-[10px] font-bold">SQUEEZE KOMPRESI</span>`;
+          } else if (c.stage === 'WAITING_REJECTION') {
+            stageBadge = `<span class="px-2 py-0.5 rounded bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 text-[10px] font-bold">OVERSOLD WICK</span>`;
+          } else {
+            stageBadge = `<span class="px-2 py-0.5 rounded bg-slate-800/80 text-slate-300 border border-slate-700 text-[10px] font-medium">STANDBY PULLBACK</span>`;
+          }
+
+          // Decimals & Gold / Bull Info
+          const bullConv = c.bull_conviction || 85;
+          const isGoldPair = c.pair.includes('PAXG');
+          
+          let clusterBadge = '';
+          if (c.cluster_key === 'major' || isBtc || pairSym === 'ETH') {
+            clusterBadge = '<span class="px-1.5 py-0.2 text-[9px] font-extrabold rounded bg-blue-500/20 text-blue-300 border border-blue-500/30">MAJOR</span>';
+          } else if (c.cluster_key === 'defensive' || isGoldPair) {
+            clusterBadge = '<span class="px-1.5 py-0.2 text-[9px] font-extrabold rounded bg-amber-500/20 text-amber-300 border border-amber-500/40">GOLD</span>';
+          } else {
+            clusterBadge = '<span class="px-1.5 py-0.2 text-[9px] font-extrabold rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">ALT</span>';
+          }
+
+          cHtml += `
+            <tr class="hover:bg-slate-800/40 transition-colors ${isGoldPair ? 'bg-amber-950/10' : ''}">
+              <td class="py-3 px-3">
+                <div class="flex items-center gap-1.5">
+                  <span class="font-extrabold ${isGoldPair ? 'text-amber-300' : 'text-white'} text-xs">${pairSym}</span>
+                  <span class="text-[10px] text-slate-400 font-sans">/USDT</span>
+                  <span class="px-1.5 py-0.2 text-[9px] font-bold rounded bg-slate-800 text-slate-300 border border-slate-700">${lev}x</span>
+                  ${clusterBadge}
+                  ${sqBadge}
+                </div>
+              </td>
+              <td class="py-3 px-3 text-slate-200 font-bold">$${formatPrice(c.mark_price, c.pair)}</td>
+              <td class="py-3 px-3">
+                <div class="flex items-center gap-1">
+                  <span class="text-amber-300 font-bold">$${formatPrice(c.support_floor_48h, c.pair)}</span>
+                </div>
+                <div class="flex items-center gap-1.5 mt-0.5">
+                  <span class="px-1.5 py-0.5 text-[10px] font-bold rounded bg-amber-500/15 text-amber-300 border border-amber-500/30 mono" title="Harga Resting Maker Limit Order (48h Support Floor)">
+                    Limit: $${formatPrice(c.candidate_limit_price, c.pair)}
+                  </span>
+                </div>
+              </td>
+              <td class="py-3 px-3">
+                <span class="text-slate-300 font-semibold">$${formatDelta(c.dist_to_support_usd, c.pair)}</span>
+                <span class="text-slate-400 text-[10px]">(${Number(c.dist_to_support_pct).toFixed(2)}%)</span>
+              </td>
+              <td class="py-3 px-3">
+                <div class="text-emerald-400 font-bold">$${formatPrice(c.target_tp, c.pair)}</div>
+                <div class="text-[10px] text-emerald-400/80 font-semibold">+${Number(c.projected_tp_pct).toFixed(1)}% ROE (+$${Number(c.projected_tp_usd).toFixed(2)})</div>
+              </td>
+              <td class="py-3 px-3">
+                <div class="text-rose-400 font-bold">$${formatPrice(c.stop_loss, c.pair)}</div>
+                <div class="text-[10px] text-rose-400/80 font-semibold">-${Number(c.projected_sl_pct).toFixed(1)}% ROE (-$${Number(c.projected_sl_usd).toFixed(2)})</div>
+              </td>
+              <td class="py-3 px-3 text-center">
+                <span class="px-2 py-0.5 rounded text-[11px] font-black border ${rrClass}">${c.rr_ratio}:1</span>
+              </td>
+              <td class="py-3 px-3 text-center">
+                <span class="px-2 py-0.5 rounded text-[10px] font-extrabold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 font-mono">${bullConv}%</span>
+              </td>
+              <td class="py-3 px-3 max-w-[260px]">
+                <div class="text-[11px] text-slate-300 truncate" title="${c.filter_status}">${c.filter_status}</div>
+                <div class="flex items-center gap-2 mt-0.5 text-[10px] text-slate-500 font-sans">
+                  <span>RSI: <strong class="text-slate-300 font-mono">${c.rsi_1h}</strong></span>
+                  <span>•</span>
+                  <span>ADX 4H: <strong class="text-slate-300 font-mono">${c.adx_4h}</strong></span>
+                </div>
+              </td>
+              <td class="py-3 px-3 text-center">
+                <div class="flex flex-col items-center gap-1">
+                  ${stageBadge}
+                  <div class="flex items-center gap-1.5 w-16 justify-center">
+                    <span class="text-[10px] font-bold text-slate-400 mono">${c.readiness}%</span>
+                    <div class="w-10 bg-slate-800 h-1.5 rounded-full overflow-hidden">
+                      <div class="bg-amber-400 h-full rounded-full" style="width: ${c.readiness}%"></div>
+                    </div>
+                  </div>
+                </div>
+              </td>
+              <td class="py-3 px-3 text-right">
+                <div class="flex items-center justify-end gap-1.5">
+                  <button onclick="placeDirectMarketOrder('${c.pair}')" class="px-2 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/35 text-emerald-300 border border-emerald-500/40 text-[10px] font-bold transition flex items-center gap-1 shadow-sm shadow-emerald-500/10" title="Eksekusi langsung order pasar (Market Order) saat ini">
+                    <span>⚡ Pasar</span>
+                  </button>
+                  <button onclick="placeTestLimitOrder('${c.pair}', ${c.candidate_limit_price})" class="px-2.5 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/35 text-amber-300 border border-amber-500/40 text-[10px] font-bold transition flex items-center gap-1 shadow-sm shadow-amber-500/10" title="Pasang resting maker limit order di Lantai Support 48h">
+                    <span>⚡ Limit $${formatPrice(c.candidate_limit_price, c.pair)}</span>
+                  </button>
+                </div>
+              </td>
+            </tr>
+          `;
+        });
+      }
+      tbody.innerHTML = cHtml;
+    }
+
+    // TRADINGVIEW LIGHTWEIGHT CHARTS INITIALIZATION & TIMEFRAME SWITCHING
+    window._tradeChartInstances = window._tradeChartInstances || {};
+
+    function initOrUpdateTradeChart(t) {
+      if (typeof LightweightCharts === 'undefined') return;
+      const containerId = `trade-chart-container-${t.id}`;
+      const container = document.getElementById(containerId);
+      if (!container) return;
+
+      const loader = document.getElementById(`chart-loader-${t.id}`);
+      if (loader) loader.style.display = 'none';
+
+      let chartObj = window._tradeChartInstances[t.id];
+      if (chartObj && chartObj.container !== container) {
+        try {
+          chartObj.resizeObserver?.disconnect();
+          chartObj.chart?.remove();
+        } catch (e) {}
+        chartObj = null;
+        delete window._tradeChartInstances[t.id];
+      }
+
+      const openRate = Number(t.open_rate || t.limit_entry_price || 0);
+      const dec = openRate < 1.0 ? 5 : (openRate < 10.0 ? 4 : 2);
+      const minMove = openRate < 1.0 ? 0.00001 : (openRate < 10.0 ? 0.0001 : 0.01);
+
+      if (!chartObj) {
+        const chart = LightweightCharts.createChart(container, {
+          width: container.clientWidth || 800,
+          height: 360,
+          layout: {
+            background: { color: '#07090e' },
+            textColor: '#94a3b8',
+            fontSize: 11,
+            fontFamily: "'JetBrains Mono', monospace"
+          },
+          grid: {
+            vertLines: { color: 'rgba(255, 255, 255, 0.04)' },
+            horzLines: { color: 'rgba(255, 255, 255, 0.04)' }
+          },
+          crosshair: {
+            mode: LightweightCharts.CrosshairMode.Normal,
+            vertLine: {
+              color: '#38bdf8',
+              width: 1,
+              style: LightweightCharts.LineStyle.Dashed,
+              labelBackgroundColor: '#0284c7'
+            },
+            horzLine: {
+              color: '#38bdf8',
+              width: 1,
+              style: LightweightCharts.LineStyle.Dashed,
+              labelBackgroundColor: '#0284c7'
+            }
+          },
+          rightPriceScale: {
+            borderColor: 'rgba(255, 255, 255, 0.1)',
+            scaleMargins: {
+              top: 0.1,
+              bottom: 0.2
+            }
+          },
+          timeScale: {
+            borderColor: 'rgba(255, 255, 255, 0.1)',
+            timeVisible: true,
+            secondsVisible: false
+          }
+        });
+
+        const candleSeries = chart.addCandlestickSeries({
+          upColor: '#10b981',
+          downColor: '#f43f5e',
+          borderUpColor: '#10b981',
+          borderDownColor: '#f43f5e',
+          wickUpColor: '#10b981',
+          wickDownColor: '#f43f5e',
+          priceFormat: {
+            type: 'price',
+            precision: dec,
+            minMove: minMove
+          }
+        });
+
+        const volumeSeries = chart.addHistogramSeries({
+          priceFormat: { type: 'volume' },
+          priceScaleId: '',
+          scaleMargins: {
+            top: 0.85,
+            bottom: 0
+          }
+        });
+
+        // 5 Execution Lines
+        const tpPrice16 = Number(t.tp_price_16 || (openRate * 1.0537));
+        const tpUsd16 = Number(t.tp_usd_16 || ((t.stake_amount || 471.5) * 0.161));
+        const tpPrice52 = Number(t.tp_price_52 || (openRate * 1.1753));
+        const tpUsd52 = Number(t.tp_usd_52 || ((t.stake_amount || 471.5) * 0.526));
+        const slStalePrice = Number(t.sl_stale_price || (openRate * 0.990));
+        const slStaleUsd = Math.abs(Number(t.sl_stale_usd || ((t.stake_amount || 471.5) * 0.030)));
+        const slEmergPrice = Number(t.sl_emerg_price || (openRate * 0.901));
+        const slEmergUsd = Math.abs(Number(t.sl_emerg_usd || ((t.stake_amount || 471.5) * 0.297)));
+
+        // 1. Entry Line (Cyan Solid)
+        candleSeries.createPriceLine({
+          price: openRate,
+          color: '#22d3ee',
+          lineWidth: 2,
+          lineStyle: LightweightCharts.LineStyle.Solid,
+          axisLabelVisible: true,
+          title: `ENTRY $${formatPrice(openRate, t.pair)}`
+        });
+
+        // 2. Take Profit 1 (Emerald Dashed)
+        candleSeries.createPriceLine({
+          price: Number(tpPrice16),
+          color: '#10b981',
+          lineWidth: 2,
+          lineStyle: LightweightCharts.LineStyle.Dashed,
+          axisLabelVisible: true,
+          title: `TP 1 (+16.1%) $${formatPrice(tpPrice16, t.pair)} (+$${Number(tpUsd16).toFixed(2)})`
+        });
+
+        // 3. Take Profit 2 (Teal Dotted)
+        candleSeries.createPriceLine({
+          price: Number(tpPrice52),
+          color: '#14b8a6',
+          lineWidth: 1,
+          lineStyle: LightweightCharts.LineStyle.Dotted,
+          axisLabelVisible: true,
+          title: `TP 2 (+52.6%) $${formatPrice(tpPrice52, t.pair)} (+$${Number(tpUsd52).toFixed(2)})`
+        });
+
+        // 4. Stale Cutoff (Amber Dashed)
+        candleSeries.createPriceLine({
+          price: Number(slStalePrice),
+          color: '#f59e0b',
+          lineWidth: 1,
+          lineStyle: LightweightCharts.LineStyle.Dashed,
+          axisLabelVisible: true,
+          title: `PROTEKSI STALE $${formatPrice(slStalePrice, t.pair)} (-$${Number(slStaleUsd).toFixed(2)})`
+        });
+
+        // 5. Emergency Stop Loss (Rose Solid)
+        candleSeries.createPriceLine({
+          price: Number(slEmergPrice),
+          color: '#f43f5e',
+          lineWidth: 2,
+          lineStyle: LightweightCharts.LineStyle.Solid,
+          axisLabelVisible: true,
+          title: `STOP LOSS DARURAT $${formatPrice(slEmergPrice, t.pair)} (-$${Number(slEmergUsd).toFixed(2)})`
+        });
+
+        // Responsive auto-resize observer
+        const resizeObserver = new ResizeObserver(entries => {
+          if (!entries || entries.length === 0) return;
+          const { width } = entries[0].contentRect;
+          if (width > 0) chart.applyOptions({ width });
+        });
+        resizeObserver.observe(container);
+
+        chartObj = {
+          chart,
+          candleSeries,
+          volumeSeries,
+          resizeObserver,
+          currentTf: '1h',
+          lastDataCount: 0,
+          container
+        };
+        window._tradeChartInstances[t.id] = chartObj;
+      }
+
+      // Populate Candle Data if available
+      if (t.candles_1h && Array.isArray(t.candles_1h) && t.candles_1h.length > 0 && chartObj.currentTf === '1h') {
+        const sortedCandles = t.candles_1h.slice().sort((a, b) => a.time - b.time);
+        const candleData = sortedCandles.map(c => ({
+          time: c.time,
+          open: c.open,
+          high: c.high,
+          low: c.low,
+          close: c.close
+        }));
+        const volData = sortedCandles.map(c => ({
+          time: c.time,
+          value: c.volume || 0,
+          color: c.close >= c.open ? 'rgba(16, 185, 129, 0.25)' : 'rgba(244, 63, 94, 0.25)'
+        }));
+        chartObj.candleSeries.setData(candleData);
+        chartObj.volumeSeries.setData(volData);
+        if (chartObj.lastDataCount === 0) {
+          chartObj.chart.timeScale().fitContent();
+        }
+        chartObj.lastDataCount = candleData.length;
+      }
+    }
+
+    // Switch Timeframe for Trade Candlestick Chart
+    async function switchTradeChartTimeframe(pair, tradeId, tf) {
+      const chartObj = window._tradeChartInstances[tradeId];
+      if (!chartObj) return;
+
+      chartObj.currentTf = tf;
+      ['15m', '1h', '4h'].forEach(t => {
+        const btn = document.getElementById(`btn-tf-${tradeId}-${t}`);
+        if (btn) {
+          if (t === tf) {
+            btn.className = 'px-2.5 py-1 rounded bg-blue-600 text-white transition shadow shadow-blue-600/30';
+          } else {
+            btn.className = 'px-2.5 py-1 rounded text-slate-400 hover:text-white transition';
+          }
+        }
+      });
+
+      const label = document.getElementById(`trade-chart-tf-label-${tradeId}`);
+      if (label) label.textContent = `${tf.toUpperCase()} Bybit Linear Feed`;
+
+      try {
+        const res = await fetch(`/api/candles?pair=${encodeURIComponent(pair)}&tf=${tf}&limit=80`);
+        const json = await res.json();
+        if (json.candles && Array.isArray(json.candles) && json.candles.length > 0) {
+          const sorted = json.candles.slice().sort((a, b) => a.time - b.time);
+          const candleData = sorted.map(c => ({
+            time: c.time,
+            open: c.open,
+            high: c.high,
+            low: c.low,
+            close: c.close
+          }));
+          const volData = sorted.map(c => ({
+            time: c.time,
+            value: c.volume || 0,
+            color: c.close >= c.open ? 'rgba(16, 185, 129, 0.25)' : 'rgba(244, 63, 94, 0.25)'
+          }));
+          chartObj.candleSeries.setData(candleData);
+          chartObj.volumeSeries.setData(volData);
+          chartObj.chart.timeScale().fitContent();
+        }
+      } catch (err) {
+        console.warn('Failed to switch chart timeframe:', err);
       }
     }
 

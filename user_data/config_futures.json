@@ -1,5 +1,5 @@
 {
-    "max_open_trades": 2,
+    "max_open_trades": 3,
     "stake_currency": "USDT",
     "stake_amount": "unlimited",
     "tradable_balance_ratio": 0.95,
@@ -12,8 +12,8 @@
     "margin_mode": "isolated",
     "timeframe": "1h",
     "unfilledtimeout": {
-        "entry": 10,
-        "exit": 10,
+        "entry": 1440,
+        "exit": 60,
         "unit": "minutes"
     },
     "entry_pricing": {
@@ -59,7 +59,7 @@
         "chat_id": ""
     },
     "api_server": {
-        "enabled": false,
+        "enabled": true,
         "listen_ip_address": "127.0.0.1",
         "listen_port": 8080,
         "verbosity": "error",
@@ -70,7 +70,7 @@
     },
     "bot_name": "AzuraPortfolioAlpha",
     "initial_state": "running",
-    "force_entry_enable": false,
+    "force_entry_enable": true,
     "internals": {
         "process_throttle_secs": 5
     }

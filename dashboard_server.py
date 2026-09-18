@@ -1,7 +1,7 @@
 import json
 import sqlite3
 import urllib.parse
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import HTTPServer, BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 import zipfile
 from datetime import datetime, timezone
@@ -11,6 +11,7 @@ import ccxt
 import pandas as pd
 import talib.abstract as ta
 import psutil
+import requests
 
 PORT = 5050
 DB_PATH = Path('user_data/tradesv3.dryrun.sqlite')
@@ -18,7 +19,36 @@ BACKTEST_DIR = Path('user_data/backtest_results')
 CONFIG_PATH = Path('user_data/config_futures.json')
 
 _radar_cache = {'time': 0, 'data': []}
+_ai_candidate_cache = {'time': 0, 'data': []}
 _benchmark_cache = {'time': 0, 'data': None}
+_candles_cache = {}
+
+def get_candles(pair='ETH/USDT:USDT', tf='1h', limit=70):
+    global _candles_cache
+    cache_key = f"{pair}_{tf}_{limit}"
+    now = time.time()
+    if cache_key in _candles_cache and (now - _candles_cache[cache_key]['time'] < 10):
+        return _candles_cache[cache_key]['data']
+    
+    try:
+        exchange = ccxt.bybit({'options': {'defaultType': 'linear'}, 'timeout': 8000})
+        ohlcv = exchange.fetch_ohlcv(pair, tf, limit=limit)
+        res = []
+        for row in ohlcv:
+            res.append({
+                'time': int(row[0] // 1000),
+                'open': float(row[1]),
+                'high': float(row[2]),
+                'low': float(row[3]),
+                'close': float(row[4]),
+                'volume': float(row[5])
+            })
+        _candles_cache[cache_key] = {'time': now, 'data': res}
+        return res
+    except Exception as e:
+        if cache_key in _candles_cache:
+            return _candles_cache[cache_key]['data']
+        return []
 
 def get_config_info():
     initial_wallet = 1000.0
@@ -70,7 +100,7 @@ def get_session_start_time():
     return datetime.now().strftime('%Y-%m-%d %H:%M:%S WIB')
 
 def get_live_market_radar():
-    global _radar_cache
+    global _radar_cache, _ai_candidate_cache
     now = time.time()
     if now - _radar_cache['time'] < 15 and len(_radar_cache['data']) > 0:
         return _radar_cache['data']
@@ -78,6 +108,7 @@ def get_live_market_radar():
     cfg_info = get_config_info()
     pairs = cfg_info['whitelist']
     radar = []
+    ai_candidates = []
     try:
         exchange = ccxt.bybit({'options': {'defaultType': 'linear'}, 'timeout': 10000})
         tickers = {}
@@ -92,7 +123,6 @@ def get_live_market_radar():
                 t = tickers.get(sym) or exchange.fetch_ticker(sym)
                 o1 = exchange.fetch_ohlcv(sym, '1h', limit=100)
                 o4 = exchange.fetch_ohlcv(sym, '4h', limit=250)
-                
                 df1 = pd.DataFrame(o1, columns=['time', 'open', 'high', 'low', 'close', 'volume'])
                 df4 = pd.DataFrame(o4, columns=['time', 'open', 'high', 'low', 'close', 'volume'])
                 
@@ -135,8 +165,8 @@ def get_live_market_radar():
                 is_sol = 'SOL' in p
                 is_eth = 'ETH' in p
                 
-                adx_long_gate = 24.0 if is_btc else (22.5 if (is_eth or is_sol) else 21.0)
-                adx_short_gate = 25.0 if is_sol else 22.0
+                adx_long_gate = 21.0 if is_btc else (20.0 if (is_eth or is_sol) else 19.0)
+                adx_short_gate = 22.0 if is_sol else 20.0
                 
                 rsi_min_long = 44.0 if is_sol else 43.0
                 rsi_min_short = 56.0 if is_sol else 53.0
@@ -205,10 +235,131 @@ def get_live_market_radar():
                     'action': action_status,
                     'conviction': readiness
                 })
+
+                # --- AI Strategic Supervisor: Prospective Limit Order Candidate Analysis ---
+                df1['rolling_low_48'] = df1['low'].rolling(48).min()
+                df1['rolling_high_48'] = df1['high'].rolling(48).max()
+                
+                # Volatility Squeeze detection (Bollinger Bandwidth compression)
+                df1['bb_width'] = (boll['upperband'] - boll['lowerband']) / df1['bb_mid']
+                bb_q35 = df1['bb_width'].rolling(50).quantile(0.35)
+                is_squeeze = bool(df1['bb_width'].iloc[-2] < bb_q35.iloc[-2]) if not pd.isna(bb_q35.iloc[-2]) else False
+
+                support_floor = float(df1['rolling_low_48'].iloc[-2]) if not pd.isna(df1['rolling_low_48'].iloc[-2]) else float(df1['low'].min())
+                resistance_ceil = float(df1['rolling_high_48'].iloc[-2]) if not pd.isna(df1['rolling_high_48'].iloc[-2]) else float(df1['high'].max())
+                
+                dist_usd = c - support_floor
+                dist_pct = (dist_usd / c) * 100.0 if c > 0 else 0.0
+
+                dec = 4 if c < 10 else 2
+                support_floor = min(support_floor, c)
+                cand_limit_price = min(round(support_floor * 1.001, dec), round(c, dec))
+                target_tp = round(support_floor + 0.60 * (resistance_ceil - support_floor), dec)
+                stop_loss = round(support_floor * 0.992, dec)
+
+                risk = cand_limit_price - stop_loss
+                if risk <= 0:
+                    risk = round(cand_limit_price * 0.008, dec)
+                    stop_loss = round(cand_limit_price - risk, dec)
+
+                min_target_tp = round(cand_limit_price + 1.80 * risk, dec)
+                if target_tp < min_target_tp:
+                    target_tp = min_target_tp
+
+                reward = target_tp - cand_limit_price
+                rr_ratio = round(reward / risk, 2) if risk > 0 else 1.80
+                
+                lev = 7.0 if is_btc else 3.0
+                tp_pct_roe = round(((target_tp - cand_limit_price) / cand_limit_price) * 100.0 * lev, 2)
+                sl_pct_roe = round(((cand_limit_price - stop_loss) / cand_limit_price) * 100.0 * lev, 2)
+                
+                cand_stake = round(cfg_info['initial_wallet'] / 3.0, 2)
+                tp_usd_projected = round(cand_stake * (tp_pct_roe / 100.0), 2)
+                sl_usd_projected = round(cand_stake * (sl_pct_roe / 100.0), 2)
+
+                if adx4 >= 30.0:
+                    ai_status = f"ADX 4H ({adx4:.1f}) Tren Kuat - Standby Menunggu Konsolidasi Range"
+                    ai_stage = "TREND_FILTER"
+                    ai_readiness = 35
+                elif r > 60.0:
+                    ai_status = f"RSI 1H ({r:.1f}) Overbought - Menunggu Koreksi Sehat ke Lantai Support"
+                    ai_stage = "WAITING_PULLBACK"
+                    ai_readiness = 45
+                elif r < 32.0:
+                    ai_status = f"RSI 1H ({r:.1f}) Oversold Ekstrem - Menunggu Konfirmasi Rebound Wick"
+                    ai_stage = "WAITING_REJECTION"
+                    ai_readiness = 70
+                elif is_squeeze:
+                    ai_status = f"Squeeze Volatilitas Terdeteksi - Menunggu Uji Lantai Support (${support_floor:,.{dec}f})"
+                    ai_stage = "SQUEEZE_ACTIVE"
+                    ai_readiness = 80
+                elif dist_pct <= 1.5:
+                    ai_status = f"Dekat Lantai Support (Jarak {dist_pct:.2f}%) - Siaga Penempatan Limit Order"
+                    ai_stage = "READY_LIMIT"
+                    ai_readiness = 92
+                else:
+                    ai_status = f"Standby Memantau Pullback ke Support (Jarak {dist_pct:.2f}%)"
+                    ai_stage = "MONITORING"
+                    ai_readiness = 50
+
+                # Bull Mode Conviction Score Calculation
+                bull_conv = 50
+                if r < 42.0:
+                    bull_conv += 20
+                elif r < 52.0:
+                    bull_conv += 10
+                if dist_pct < 2.5:
+                    bull_conv += 20
+                elif dist_pct < 5.0:
+                    bull_conv += 10
+                if is_squeeze:
+                    bull_conv += 10
+                if adx4 < 26.0:
+                    bull_conv += 8
+                bull_conv = int(min(98, max(38, bull_conv)))
+
+                if 'BTC' in p or 'ETH' in p:
+                    cluster_name = 'Major Anchor'
+                    cluster_key = 'major'
+                elif 'PAXG' in p:
+                    cluster_name = 'Defensive Gold'
+                    cluster_key = 'defensive'
+                else:
+                    cluster_name = 'High-Beta Alt'
+                    cluster_key = 'alt'
+
+                ai_candidates.append({
+                    'pair': p,
+                    'mark_price': round(c, dec),
+                    'support_floor': round(support_floor, dec),
+                    'support_floor_48h': round(support_floor, dec),
+                    'resistance_ceil_48h': round(resistance_ceil, dec),
+                    'dist_to_support_usd': round(dist_usd, dec),
+                    'dist_to_support_pct': round(dist_pct, 2),
+                    'candidate_limit_price': cand_limit_price,
+                    'target_tp': target_tp,
+                    'stop_loss': stop_loss,
+                    'projected_tp_pct': tp_pct_roe,
+                    'projected_sl_pct': sl_pct_roe,
+                    'projected_tp_usd': tp_usd_projected,
+                    'projected_sl_usd': sl_usd_projected,
+                    'rr_ratio': rr_ratio,
+                    'rsi_1h': round(r, 1),
+                    'adx_4h': round(adx4, 1),
+                    'is_squeeze': is_squeeze,
+                    'filter_status': ai_status,
+                    'stage': ai_stage,
+                    'readiness': ai_readiness,
+                    'bull_conviction': bull_conv,
+                    'cluster': cluster_name,
+                    'cluster_key': cluster_key,
+                    'leverage': lev
+                })
             except Exception as pe:
                 pass
         if len(radar) > 0:
             _radar_cache = {'time': now, 'data': radar}
+            _ai_candidate_cache = {'time': now, 'data': ai_candidates}
             return radar
     except Exception as e:
         print('Error fetching live radar:', e)
@@ -217,13 +368,34 @@ def get_live_market_radar():
         return _radar_cache['data']
     return []
 
+def get_ai_candidate_radar():
+    global _ai_candidate_cache
+    now = time.time()
+    if now - _ai_candidate_cache['time'] < 15 and len(_ai_candidate_cache['data']) > 0:
+        return _ai_candidate_cache['data']
+    get_live_market_radar()
+    return _ai_candidate_cache['data']
+
 def load_benchmark_data():
     global _benchmark_cache
     now = time.time()
     if _benchmark_cache['data'] and (now - _benchmark_cache['time'] < 60):
         return _benchmark_cache['data']
 
-    zips = sorted(BACKTEST_DIR.glob('*.zip'), key=lambda x: x.stat().st_mtime, reverse=True)
+    # Check for official verified Model C True Optimized benchmark JSON
+    official_json = BACKTEST_DIR / 'benchmark_model_c_true_optimized.json'
+    if official_json.exists():
+        try:
+            with open(official_json, 'r', encoding='utf-8') as f:
+                res = json.load(f)
+                _benchmark_cache = {'time': now, 'data': res}
+                return res
+        except Exception as e:
+            print('Error loading official benchmark json:', e)
+
+    # Filter to exclude experimental failed strategies (V12-V15)
+    zips = [z for z in sorted(BACKTEST_DIR.glob('*.zip'), key=lambda x: x.stat().st_mtime, reverse=True)
+            if 'v12' not in z.name.lower() and 'v13' not in z.name.lower() and 'v14' not in z.name.lower() and 'v15' not in z.name.lower()]
     if not zips:
         return {'trades': [], 'summary': {}, 'equity_curves': {}}
     
@@ -456,6 +628,7 @@ def get_live_db_data():
         total_floating_pnl = 0.0
 
         for r in open_rows:
+            trade_id = r[0]
             pair = r[1]
             open_rate = float(r[4] or 0.0)
             is_short = bool(r[12])
@@ -464,32 +637,128 @@ def get_live_db_data():
             total_open_stake += stk
 
             mark_price = float(radar_prices.get(pair, open_rate))
-            if open_rate > 0:
-                profit_ratio = (open_rate - mark_price) / open_rate if is_short else (mark_price - open_rate) / open_rate
-            else:
-                profit_ratio = 0.0
+            crypto_amount = float(r[3] or 0.0)
             
-            p_usd = profit_ratio * stk * lev
+            # Query orders table for entry order record (lowest id = initial entry)
+            cursor.execute('SELECT order_id, order_type, side, price, filled, remaining, status, ft_is_open, ft_order_tag FROM orders WHERE ft_trade_id = ? ORDER BY id ASC LIMIT 1', (trade_id,))
+            ord_row = cursor.fetchone()
+            order_id = ord_row[0] if ord_row else None
+            ord_type = ord_row[1] if ord_row else ('limit' if crypto_amount == 0.0 else 'market')
+            ord_status = ord_row[6] if ord_row else ('open' if crypto_amount == 0.0 else 'closed')
+            ord_filled = float(ord_row[4] or 0.0) if ord_row else crypto_amount
+            ord_remaining = float(ord_row[5] or 0.0) if ord_row else 0.0
+
+            # In Freqtrade futures, an unfilled limit order has crypto_amount == 0.0
+            is_limit_order = (crypto_amount == 0.0)
+
+            if is_limit_order:
+                profit_ratio = 0.0
+                p_usd = 0.0
+                notional = round(stk * lev, 2)
+                current_notional = round(stk * lev, 2)
+                order_status = 'RESTING LIMIT ORDER'
+            else:
+                if open_rate > 0:
+                    profit_ratio = (open_rate - mark_price) / open_rate if is_short else (mark_price - open_rate) / open_rate
+                else:
+                    profit_ratio = 0.0
+                p_usd = profit_ratio * stk * lev
+                notional = round(open_rate * crypto_amount, 2)
+                current_notional = round(mark_price * crypto_amount, 2)
+                order_status = 'FILLED'
+
             total_floating_pnl += p_usd
+
+            # Rich Analytical Metrics
+            spot_diff = (open_rate - mark_price) if is_short else (mark_price - open_rate)
+            spot_diff_pct = (spot_diff / open_rate * 100.0) if open_rate > 0 else 0.0
+            dist_to_fill = abs(mark_price - open_rate)
+            dist_to_fill_pct = (dist_to_fill / mark_price * 100.0) if mark_price > 0 else 0.0
+
+            # Price Targets and Risk Boundaries
+            dec = 5 if open_rate < 1.0 else (4 if open_rate < 10.0 else 2)
+            tp_roi_16 = 0.161
+            tp_price_16 = round(open_rate * (1.0 - tp_roi_16 / lev) if is_short else open_rate * (1.0 + tp_roi_16 / lev), dec)
+            tp_usd_16 = round(stk * tp_roi_16, 2)
+
+            tp_roi_52 = 0.526
+            tp_price_52 = round(open_rate * (1.0 - tp_roi_52 / lev) if is_short else open_rate * (1.0 + tp_roi_52 / lev), dec)
+            tp_usd_52 = round(stk * tp_roi_52, 2)
+
+            sl_stale_spot = 0.010
+            sl_stale_price = round(open_rate * (1.0 + sl_stale_spot) if is_short else open_rate * (1.0 - sl_stale_spot), dec)
+            sl_stale_usd = round(-stk * sl_stale_spot * lev, 2)
+
+            sl_emerg_roi = 0.297
+            sl_emerg_price = round(open_rate * (1.0 + sl_emerg_roi / lev) if is_short else open_rate * (1.0 - sl_emerg_roi / lev), dec)
+            sl_emerg_usd = round(-stk * sl_emerg_roi, 2)
+
+            # Elapsed Duration
+            open_dt_str = str(r[7] or '')
+            duration_str = 'Baru saja'
+            duration_minutes = 0
+            if open_dt_str:
+                try:
+                    dt_clean = open_dt_str.split('.')[0]
+                    t_open = datetime.strptime(dt_clean, '%Y-%m-%d %H:%M:%S').replace(tzinfo=timezone.utc)
+                    now_utc = datetime.now(timezone.utc)
+                    delta_sec = max(0, (now_utc - t_open).total_seconds())
+                    duration_minutes = int(delta_sec // 60)
+                    hrs = duration_minutes // 60
+                    mins = duration_minutes % 60
+                    if hrs > 0:
+                        duration_str = f"{hrs} Jam {mins} Menit"
+                    else:
+                        duration_str = f"{mins} Menit"
+                except Exception:
+                    pass
 
             open_trades.append({
                 'id': r[0],
                 'pair': pair,
                 'is_open': True,
-                'amount': r[3],
+                'amount': crypto_amount,
+                'notional': notional,
+                'current_notional': current_notional,
                 'open_rate': open_rate,
                 'close_rate': mark_price,
+                'spot_diff': round(spot_diff, 4),
+                'spot_diff_pct': round(spot_diff_pct, 2),
                 'profit_ratio': profit_ratio,
                 'profit_abs': round(p_usd, 4),
                 'profit_pct': round(profit_ratio * 100 * lev, 2),
                 'open_date': r[7],
+                'duration_str': duration_str,
+                'duration_minutes': duration_minutes,
                 'close_date': r[8],
                 'strategy': r[9],
                 'enter_tag': r[10] or 'Signal Trigger',
                 'exit_reason': r[11] or 'Active Trajectory',
                 'is_short': is_short,
                 'leverage': lev,
-                'stake_amount': stk
+                'stake_amount': stk,
+                'tp_price_16': tp_price_16,
+                'tp_usd_16': tp_usd_16,
+                'tp_pct_16': round(tp_roi_16 * 100, 1),
+                'tp_price_52': tp_price_52,
+                'tp_usd_52': tp_usd_52,
+                'tp_pct_52': round(tp_roi_52 * 100, 1),
+                'sl_stale_price': sl_stale_price,
+                'sl_stale_usd': sl_stale_usd,
+                'sl_stale_pct': round(sl_stale_spot * lev * 100, 1),
+                'sl_emerg_price': sl_emerg_price,
+                'sl_emerg_usd': sl_emerg_usd,
+                'sl_emerg_pct': round(sl_emerg_roi * 100, 1),
+                'is_limit_order': is_limit_order,
+                'order_status': order_status,
+                'order_id': order_id,
+                'order_type': ord_type,
+                'filled_amount': ord_filled,
+                'remaining_amount': ord_remaining,
+                'limit_entry_price': open_rate,
+                'distance_to_fill': round(dist_to_fill, dec),
+                'distance_to_fill_pct': round(dist_to_fill_pct, 2),
+                'candles_1h': get_candles(pair, '1h', limit=80)
             })
             
         cursor.execute("SELECT COALESCE(SUM(close_profit_abs), 0.0), COUNT(*) FROM trades WHERE is_open = 0")
@@ -543,6 +812,26 @@ def get_live_db_data():
                 'leverage': lev,
                 'stake_amount': stk
             })
+        cursor.execute("SELECT id, ft_trade_id, ft_order_side, ft_pair, ft_is_open, ft_amount, ft_price, status, order_type, side, price, filled, remaining, order_id, order_date FROM orders WHERE ft_is_open = 1")
+        open_orders_list = []
+        for o in cursor.fetchall():
+            open_orders_list.append({
+                'order_db_id': o[0],
+                'trade_id': o[1],
+                'order_side': o[2],
+                'pair': o[3],
+                'is_open': bool(o[4]),
+                'amount': float(o[5] or 0.0),
+                'price': float(o[6] or 0.0),
+                'status': o[7],
+                'order_type': o[8],
+                'side': o[9],
+                'limit_price': float(o[10] or 0.0),
+                'filled': float(o[11] or 0.0),
+                'remaining': float(o[12] or 0.0),
+                'order_id': o[13],
+                'order_date': o[14]
+            })
         conn.close()
         
         for d, v in daily_map.items():
@@ -552,11 +841,15 @@ def get_live_db_data():
                 loss_days.add(d)
         
         live_balance = round(init_bal + session_pnl, 2)
+        total_equity = round(live_balance + total_floating_pnl, 2)
         free_collateral = round(live_balance - total_open_stake, 2)
+        equity_free_collateral = round(total_equity - total_open_stake, 2)
         floating_pnl_pct = round((total_floating_pnl / init_bal) * 100, 2)
+        equity_pnl_pct = round(((total_equity - init_bal) / init_bal) * 100, 2)
         
         return {
             'open_trades': open_trades,
+            'open_orders': open_orders_list,
             'closed_trades': closed_trades,
             'session_summary': {
                 'start_time': session_start_str,
@@ -568,7 +861,11 @@ def get_live_db_data():
                 'floating_pnl_usd': round(total_floating_pnl, 2),
                 'floating_pnl_pct': floating_pnl_pct,
                 'balance': live_balance,
+                'total_equity': total_equity,
+                'equity_pnl_pct': equity_pnl_pct,
+                'total_open_stake': round(total_open_stake, 2),
                 'free_collateral': free_collateral,
+                'equity_free_collateral': equity_free_collateral,
                 'daily_map': daily_map,
                 'win_days_count': len(win_days),
                 'loss_days_count': len(loss_days)
@@ -583,13 +880,6 @@ def get_live_db_data():
         }
 
 class DashboardHandler(BaseHTTPRequestHandler):
-    def do_OPTIONS(self):
-        self.send_response(200)
-        self.send_header('Access-Control-Allow-Origin', '*')
-        self.send_header('Access-Control-Allow-Methods', 'GET, OPTIONS')
-        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
-        self.end_headers()
-
     def do_GET(self):
         parsed = urllib.parse.urlparse(self.path)
         if parsed.path == '/' or parsed.path == '/index.html':
@@ -609,6 +899,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             live_data = get_live_db_data()
             benchmark_data = load_benchmark_data()
             radar_data = get_live_market_radar()
+            ai_candidates = get_ai_candidate_radar()
             cfg_info = get_config_info()
             freq_pid = get_freqtrade_pid()
             
@@ -620,7 +911,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 'daemon_pid': freq_pid or 'ACTIVE',
                 'current_date': session_sum.get('current_date', '2026-09-10'),
                 'current_month': session_sum.get('current_month', 'September 2026'),
-                'strategy': 'ApexDualAlpha_Omni_V11_Ultimate',
+                'strategy': 'ApexDualAlpha_Omni_V11_OptionB',
                 'config': {
                     'exchange': 'Bybit Perpetual Futures',
                     'margin_mode': 'Isolated',
@@ -631,6 +922,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     'stake_amount': f'Dynamic Compound (Unlimited) / Max {cfg_info["max_open_trades"]} Trades'
                 },
                 'market_radar': radar_data,
+                'ai_candidate_radar': ai_candidates,
+                'open_orders': live_data.get('open_orders', []),
                 'live_simulation': {
                     'is_active': True,
                     'mode_title': 'Simulasi Live Trading (Dry-Run Paper Trading)',
@@ -638,6 +931,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     'start_time': session_sum.get('start_time', '2026-09-10 19:30:00 WIB'),
                     'wallet_balance': session_sum.get('balance', init_bal),
                     'free_collateral': session_sum.get('free_collateral', init_bal),
+                    'total_equity': session_sum.get('total_equity', init_bal),
+                    'equity_pnl_pct': session_sum.get('equity_pnl_pct', 0.0),
+                    'total_open_stake': session_sum.get('total_open_stake', 0.0),
+                    'equity_free_collateral': session_sum.get('equity_free_collateral', init_bal),
                     'session_pnl_usd': session_sum.get('session_pnl_usd', 0.0),
                     'session_pnl_pct': session_sum.get('session_pnl_pct', 0.0),
                     'floating_pnl_usd': session_sum.get('floating_pnl_usd', 0.0),
@@ -648,7 +945,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     'loss_days_count': session_sum.get('loss_days_count', 0),
                     'session_summary': session_sum,
                     'open_trades': live_data.get('open_trades', []),
+                    'open_orders': live_data.get('open_orders', []),
+                    'ai_candidate_radar': ai_candidates,
                     'closed_trades': live_data.get('closed_trades', []),
+                    'ai_slot_mode': 'Dynamic Waterfall Multi-Slot Takeover (0 s.d. 3 Slot)',
+                    'ai_slots_available': max(0, 3 - len(live_data.get('open_trades', []))),
+                    'cluster_guard': 'Active (Maksimal 1 Posisi per Kluster)',
                     'chart_24h': benchmark_data.get('equity_curves', {}).get('24H', [])
                 },
                 'real_live_trading': {
@@ -675,13 +977,155 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self.send_header('Content-Length', str(len(body)))
             self.end_headers()
             self.wfile.write(body)
+        elif parsed.path == '/api/candles':
+            query = urllib.parse.parse_qs(parsed.query)
+            pair = query.get('pair', ['ETH/USDT:USDT'])[0]
+            tf = query.get('tf', ['1h'])[0]
+            limit = int(query.get('limit', [80])[0])
+            candles = get_candles(pair=pair, tf=tf, limit=limit)
+            body = json.dumps({'pair': pair, 'tf': tf, 'candles': candles}).encode('utf-8')
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.send_header('Content-Length', str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        else:
+            self.send_response(404)
+            self.end_headers()
+
+    def do_OPTIONS(self):
+        self.send_response(200)
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, DELETE')
+        self.send_header('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+        self.end_headers()
+
+    def do_POST(self):
+        parsed = urllib.parse.urlparse(self.path)
+        content_length = int(self.headers.get('Content-Length', 0))
+        post_data = self.rfile.read(content_length) if content_length > 0 else b'{}'
+        try:
+            data = json.loads(post_data.decode('utf-8'))
+        except Exception:
+            data = {}
+
+        ft_url = "http://127.0.0.1:8080"
+        ft_auth = ('freqtrader', 'SuperSecretPassword123!')
+
+        if parsed.path == '/api/forceenter':
+            pair = data.get('pair', 'DOGE/USDT:USDT')
+            side = data.get('side', 'long')
+            ordertype = data.get('ordertype', 'limit')
+            price = float(data.get('price', 0.0))
+            stake = float(data.get('stakeamount', 314.0))
+            entry_tag = data.get('entry_tag', 'ui_test_maker_limit')
+            
+            payload = {
+                'pair': pair,
+                'side': side,
+                'ordertype': ordertype,
+                'stakeamount': stake,
+                'entry_tag': entry_tag
+            }
+            if ordertype == 'limit' and price > 0:
+                payload['price'] = price
+
+            try:
+                res = requests.post(f"{ft_url}/api/v1/forceenter", auth=ft_auth, json=payload, timeout=10)
+                body = res.content
+                status_code = res.status_code
+            except Exception as e:
+                body = json.dumps({'error': str(e)}).encode('utf-8')
+                status_code = 500
+
+            self.send_response(status_code)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.send_header('Content-Length', str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        elif parsed.path == '/api/market_fill':
+            trade_id = data.get('trade_id')
+            pair = data.get('pair', 'DOGE/USDT:USDT')
+            stake = float(data.get('stakeamount', 314.0))
+            if trade_id:
+                try:
+                    requests.delete(f"{ft_url}/api/v1/trades/{trade_id}/open-order", auth=ft_auth, timeout=10)
+                except Exception:
+                    pass
+            m_payload = {
+                'pair': pair,
+                'side': 'long',
+                'ordertype': 'market',
+                'stakeamount': stake,
+                'entry_tag': 'ui_market_fill'
+            }
+            try:
+                res = requests.post(f"{ft_url}/api/v1/forceenter", auth=ft_auth, json=m_payload, timeout=10)
+                body = res.content
+                status_code = res.status_code
+            except Exception as e:
+                body = json.dumps({'error': str(e)}).encode('utf-8')
+                status_code = 500
+
+            self.send_response(status_code)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.send_header('Content-Length', str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        elif parsed.path == '/api/cancel_order':
+            trade_id = data.get('trade_id')
+            if not trade_id:
+                body = json.dumps({'error': 'trade_id required'}).encode('utf-8')
+                status_code = 400
+            else:
+                try:
+                    res = requests.delete(f"{ft_url}/api/v1/trades/{trade_id}/open-order", auth=ft_auth, timeout=10)
+                    if res.status_code == 200 or (res.status_code == 502 and 'no active trade' in res.text):
+                        body = json.dumps({'success': True, 'message': f'Order for trade #{trade_id} cancelled.'}).encode('utf-8')
+                        status_code = 200
+                    else:
+                        body = res.content
+                        status_code = res.status_code
+                except Exception as e:
+                    body = json.dumps({'error': str(e)}).encode('utf-8')
+                    status_code = 500
+
+            self.send_response(status_code)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.send_header('Content-Length', str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        elif parsed.path == '/api/forceexit':
+            trade_id = data.get('trade_id')
+            ordertype = data.get('ordertype', 'market')
+            try:
+                res = requests.post(f"{ft_url}/api/v1/forceexit", auth=ft_auth, json={'tradeid': str(trade_id), 'ordertype': ordertype}, timeout=10)
+                body = res.content
+                status_code = res.status_code
+            except Exception as e:
+                body = json.dumps({'error': str(e)}).encode('utf-8')
+                status_code = 500
+
+            self.send_response(status_code)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.send_header('Content-Length', str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
         else:
             self.send_response(404)
             self.end_headers()
 
 def run_server():
     print(f'Starting Freqtrade Multi-Mode Dashboard Bridge API on port {PORT}...')
-    server = HTTPServer(('127.0.0.1', PORT), DashboardHandler)
+    server = ThreadingHTTPServer(('127.0.0.1', PORT), DashboardHandler)
     server.serve_forever()
 
 if __name__ == '__main__':
