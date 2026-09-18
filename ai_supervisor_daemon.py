@@ -156,7 +156,7 @@ class FreqtradeClient:
 
 
 class MarketScanner:
-    """Scans Bybit Linear Futures for structural support rejection and maker opportunities."""
+    """Scans Bybit Linear Futures for structural support rejection and breakout-retest maker opportunities."""
     def __init__(self, pairs):
         self.pairs = pairs
         self.exchange = ccxt.bybit({
@@ -165,13 +165,23 @@ class MarketScanner:
                 'defaultType': 'linear'
             }
         })
+        self._candle_cache = {}  # In-memory cache: (pair, timeframe) -> (timestamp, df)
+        self._cache_ttl = 45.0  # 45 seconds TTL to avoid redundant CCXT calls
 
     def fetch_candles(self, pair: str, timeframe: str = '1h', limit: int = 100) -> pd.DataFrame:
+        cache_key = (pair, timeframe)
+        now_ts = time.time()
+        if cache_key in self._candle_cache:
+            cached_time, cached_df = self._candle_cache[cache_key]
+            if now_ts - cached_time < self._cache_ttl and len(cached_df) >= limit:
+                return cached_df.copy()
+
         bybit_symbol = pair
         try:
             ohlcv = self.exchange.fetch_ohlcv(bybit_symbol, timeframe=timeframe, limit=limit)
             df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
             df['date'] = pd.to_datetime(df['timestamp'], unit='ms', utc=True)
+            self._candle_cache[cache_key] = (now_ts, df.copy())
             return df
         except Exception as e:
             logger.error(f"Error fetching {timeframe} candles for {pair}: {e}")
@@ -179,25 +189,31 @@ class MarketScanner:
 
     def evaluate_opportunity(self, pair: str):
         df_1h = self.fetch_candles(pair, '1h', limit=80)
-        df_4h = self.fetch_candles(pair, '4h', limit=40)
+        df_4h = self.fetch_candles(pair, '4h', limit=250)
         
-        if df_1h.empty or df_4h.empty or len(df_1h) < 50 or len(df_4h) < 20:
+        if df_1h.empty or df_4h.empty or len(df_1h) < 50 or len(df_4h) < 50:
             return None
 
-        # Calculate 4H ADX
+        # Calculate 4H trend and momentum indicators
         df_4h['adx'] = ta.ADX(df_4h, timeperiod=14)
-        latest_4h_adx = df_4h['adx'].iloc[-2]  # Last closed 4h candle
-        
-        if pd.isna(latest_4h_adx) or latest_4h_adx >= 30.0:
-            return None  # Must be range-bound / non-runaway trend
+        df_4h['ema_50'] = ta.EMA(df_4h['close'], timeperiod=50)
+        df_4h['ema_200'] = ta.EMA(df_4h['close'], timeperiod=200)
 
-        # 48-hour rolling support and resistance on closed candles
+        latest_4h_adx = float(df_4h['adx'].iloc[-2]) if not pd.isna(df_4h['adx'].iloc[-2]) else 20.0
+        c_4h = df_4h['close'].iloc[-2]
+        e50_4h = df_4h['ema_50'].iloc[-2]
+        e200_4h = df_4h['ema_200'].iloc[-2]
+        macro_bull_4h = bool((c_4h > e50_4h) and (e50_4h > e200_4h)) if not pd.isna(e200_4h) else False
+
+        # 48-hour rolling support and resistance on closed 1H candles
         df_1h['rolling_low_48'] = df_1h['low'].rolling(48).min()
         df_1h['rolling_high_48'] = df_1h['high'].rolling(48).max()
-        df_1h['rsi'] = ta.RSI(df_1h, timeperiod=14)
+        df_1h['rsi'] = ta.RSI(df_1h['close'], timeperiod=14)
         df_1h['vol_mean_20'] = df_1h['volume'].rolling(20).mean()
+        df_1h['ema_9'] = ta.EMA(df_1h['close'], timeperiod=9)
+        df_1h['ema_21'] = ta.EMA(df_1h['close'], timeperiod=21)
 
-        # Bollinger Bandwidth for Volatility Squeeze detection (35th percentile bandwidth compression)
+        # Bollinger Bandwidth for Volatility Squeeze detection
         df_1h['bb_mid'] = df_1h['close'].rolling(20).mean()
         df_1h['bb_std'] = df_1h['close'].rolling(20).std()
         df_1h['bb_width'] = (df_1h['bb_std'] * 4.0) / df_1h['bb_mid']
@@ -206,65 +222,109 @@ class MarketScanner:
 
         # Evaluate last completed 1H candle (index -2)
         candle = df_1h.iloc[-2]
-        prev_support = df_1h['rolling_low_48'].iloc[-3]
-        prev_resistance = df_1h['rolling_high_48'].iloc[-3]
+        prev_support = float(df_1h['rolling_low_48'].iloc[-3])
+        prev_resistance = float(df_1h['rolling_high_48'].iloc[-3])
+        current_price = float(df_1h['close'].iloc[-1])
+        dec = 4 if current_price < 10 else 2
 
         if pd.isna(prev_support) or pd.isna(prev_resistance) or prev_support <= 0:
             return None
 
-        range_pct = (prev_resistance - prev_support) / prev_support
-        if range_pct < 0.035:
-            return None  # Range too narrow (< 3.5%)
+        # =========================================================================
+        # REGIME 1: Structural Support Dip Bounce (Range-Bound / Low ADX)
+        # =========================================================================
+        if not pd.isna(latest_4h_adx) and latest_4h_adx < 25.0:
+            range_pct = (prev_resistance - prev_support) / prev_support
+            if range_pct >= 0.035:
+                is_green = candle['close'] > candle['open']
+                body_size = abs(candle['close'] - candle['open'])
+                lower_wick = (candle['open'] - candle['low']) if is_green else (candle['close'] - candle['low'])
 
-        is_green = candle['close'] > candle['open']
-        body_size = abs(candle['close'] - candle['open'])
-        lower_wick = (candle['open'] - candle['low']) if is_green else (candle['close'] - candle['low'])
+                wick_absorbed = lower_wick > body_size * 0.75
+                touched_support = candle['low'] <= prev_support * 1.003
+                bounced_above = candle['close'] > prev_support
+                rsi_valid = 32.0 <= candle['rsi'] <= 46.0
+                vol_valid = candle['volume'] > candle['vol_mean_20'] * 0.75
+                not_broken_down = current_price > prev_support * 0.998
 
-        # Structural Rejection Gate
-        wick_absorbed = lower_wick > body_size * 0.75
-        touched_support = candle['low'] <= prev_support * 1.003
-        bounced_above = candle['close'] > prev_support
-        rsi_valid = 32.0 <= candle['rsi'] <= 46.0
-        vol_valid = candle['volume'] > candle['vol_mean_20'] * 0.75
-        current_price = float(df_1h['close'].iloc[-1])
-        not_broken_down = current_price > prev_support * 0.998
+                if touched_support and bounced_above and wick_absorbed and rsi_valid and vol_valid and not_broken_down:
+                    limit_price = round(candle['low'] + 0.20 * lower_wick, dec)
+                    limit_price = min(limit_price, round(current_price * 0.9995, dec))
+                    stop_loss = round(prev_support * 0.992, dec)
+                    take_profit = round(prev_support + 0.60 * (prev_resistance - prev_support), dec)
 
-        if touched_support and bounced_above and wick_absorbed and rsi_valid and vol_valid and not_broken_down:
-            dec = 4 if current_price < 10 else 2
-            limit_price = round(candle['low'] + 0.20 * lower_wick, dec)
-            # Guarantee limit price rests strictly at or below current market price (maker order)
-            limit_price = min(limit_price, round(current_price * 0.9995, dec))
-            stop_loss = round(prev_support * 0.992, dec)
-            take_profit = round(prev_support + 0.60 * (prev_resistance - prev_support), dec)
+                    risk = limit_price - stop_loss
+                    if risk <= 0:
+                        risk = round(limit_price * 0.008, dec)
+                        stop_loss = round(limit_price - risk, dec)
 
-            risk = limit_price - stop_loss
-            if risk <= 0:
-                risk = round(limit_price * 0.008, dec)
-                stop_loss = round(limit_price - risk, dec)
+                    min_take_profit = round(limit_price + 1.80 * risk, dec)
+                    if take_profit < min_take_profit:
+                        take_profit = min_take_profit
 
-            min_take_profit = round(limit_price + 1.80 * risk, dec)
-            if take_profit < min_take_profit:
-                take_profit = min_take_profit
+                    reward = take_profit - limit_price
+                    rr_ratio = round(reward / risk, 2) if risk > 0 else 1.80
 
-            reward = take_profit - limit_price
-            rr_ratio = round(reward / risk, 2) if risk > 0 else 1.80
+                    if rr_ratio >= 1.80:
+                        return {
+                            'pair': pair,
+                            'regime': 'support_dip_bounce',
+                            'limit_price': limit_price,
+                            'current_price': current_price,
+                            'support_floor': round(prev_support, dec),
+                            'support_floor_48h': round(prev_support, dec),
+                            'stop_loss': stop_loss,
+                            'take_profit': take_profit,
+                            'target_tp': take_profit,
+                            'rr_ratio': round(rr_ratio, 2),
+                            '4h_adx': round(latest_4h_adx, 1),
+                            'rsi': round(candle['rsi'], 1),
+                            'is_squeeze': is_squeeze,
+                            'timestamp': candle['date']
+                        }
 
-            if rr_ratio >= 1.80:
+        # =========================================================================
+        # REGIME 2: Breakout-Retest S/R Flip Maker Engine (Momentum Acceleration)
+        # =========================================================================
+        if macro_bull_4h and not pd.isna(latest_4h_adx) and latest_4h_adx >= 19.0:
+            broke_out = candle['close'] >= prev_resistance * 0.998 or candle['high'] >= prev_resistance
+            vol_expansion = candle['volume'] > candle['vol_mean_20'] * 1.05
+            rsi_momentum = 48.0 <= candle['rsi'] <= 89.0
+            ema_stack = df_1h['ema_9'].iloc[-2] > df_1h['ema_21'].iloc[-2]
+
+            if broke_out and vol_expansion and rsi_momentum and ema_stack:
+                ema9_val = float(df_1h['ema_9'].iloc[-2])
+                retest_level = max(prev_resistance, ema9_val)
+                # Ensure strictly maker limit order placed below current market price
+                limit_price = round(min(retest_level, current_price * 0.9985), dec)
+                stop_loss = round(min(limit_price * 0.986, prev_resistance * 0.988), dec)
+
+                risk = limit_price - stop_loss
+                if risk <= 0:
+                    risk = round(limit_price * 0.012, dec)
+                    stop_loss = round(limit_price - risk, dec)
+
+                take_profit = round(limit_price + 2.0 * risk, dec)
+                reward = take_profit - limit_price
+                rr_ratio = round(reward / risk, 2) if risk > 0 else 2.0
+
                 return {
                     'pair': pair,
+                    'regime': 'breakout_retest_maker',
                     'limit_price': limit_price,
                     'current_price': current_price,
-                    'support_floor': round(prev_support, dec),
-                    'support_floor_48h': round(prev_support, dec),
+                    'support_floor': round(retest_level, dec),
+                    'support_floor_48h': round(prev_resistance, dec),
                     'stop_loss': stop_loss,
                     'take_profit': take_profit,
                     'target_tp': take_profit,
                     'rr_ratio': round(rr_ratio, 2),
                     '4h_adx': round(latest_4h_adx, 1),
                     'rsi': round(candle['rsi'], 1),
-                    'is_squeeze': is_squeeze,
+                    'is_squeeze': False,
                     'timestamp': candle['date']
                 }
+
         return None
 
 
@@ -290,6 +350,7 @@ class AISupervisorDaemon:
 
         self.normal_idle_threshold_hours = 18.0
         self.squeeze_idle_threshold_hours = 12.0
+        self.breakout_idle_threshold_hours = 6.0
         self.max_portfolio_slots = int(self.config.get('max_open_trades', 3))
         
         # Cluster Diversification Guard (Max 1 position per cluster)
@@ -394,7 +455,7 @@ class AISupervisorDaemon:
         logger.info(f"Active trades in system: {active_count} / {max_total}")
 
         # Count active AI trades and Core trades
-        ai_active_count = sum(1 for t in open_trades if "ai_opportunistic" in t.get('enter_tag', ''))
+        ai_active_count = sum(1 for t in open_trades if "ai_" in t.get('enter_tag', ''))
         core_active_count = active_count - ai_active_count
 
         # Identify occupied clusters to prevent correlation risk
@@ -404,7 +465,7 @@ class AISupervisorDaemon:
             p = t.get('pair')
             c_name = self.get_pair_cluster(p)
             occupied_clusters.add(c_name)
-            if float(t.get('amount') or 0.0) == 0.0 and "ai_opportunistic" in t.get('enter_tag', ''):
+            if float(t.get('amount') or 0.0) == 0.0 and "ai_" in t.get('enter_tag', ''):
                 unfilled_ai_trades.append(t)
 
         slots_to_fill = self.get_available_ai_slots(core_active_count, ai_active_count)
@@ -443,18 +504,22 @@ class AISupervisorDaemon:
         else:
             idle_h = (now - last_event_time).total_seconds() / 3600.0
 
-        logger.info(f"Core Engine Idle Duration: {idle_h:.1f} hours (Normal Gate: {self.normal_idle_threshold_hours}h | Squeeze Gate: {self.squeeze_idle_threshold_hours}h)")
+        logger.info(
+            f"Core Engine Idle Duration: {idle_h:.1f} hours "
+            f"(Breakout Gate: {self.breakout_idle_threshold_hours}h | Squeeze Gate: {self.squeeze_idle_threshold_hours}h | Normal Gate: {self.normal_idle_threshold_hours}h)"
+        )
 
         # 4. Check Opportunistic Entry Eligibility
-        min_required_idle = min(self.normal_idle_threshold_hours, self.squeeze_idle_threshold_hours)
+        min_required_idle = min(self.normal_idle_threshold_hours, self.squeeze_idle_threshold_hours, self.breakout_idle_threshold_hours)
         if idle_h < min_required_idle:
             logger.info(f"System not yet eligible for opportunistic maker entry (idle {idle_h:.1f}h < minimum {min_required_idle:.1f}h).")
             return
 
-        # 5. Scan whitelist pairs for structural support rejections with Adaptive Squeeze Gate
-        logger.info("Scanning pairs across clusters for structural support setups (Adaptive Squeeze Gate: 12h Squeeze / 18h Normal)...")
+        # 5. Scan whitelist pairs for Dual-Regime setups (Breakout-Retest 6h / Squeeze 12h / Support 18h)
+        logger.info("Scanning pairs across clusters for Dual-Regime setups (Breakout-Retest 6h / Squeeze 12h / Support 18h)...")
         cluster_opportunities = {}
         for pair in self.pairs:
+            time.sleep(0.30)  # Pacing to protect Bybit REST rate limit (Code 10006)
             c_name = self.get_pair_cluster(pair)
             # Skip pairs belonging to already occupied clusters
             if c_name in occupied_clusters:
@@ -462,12 +527,19 @@ class AISupervisorDaemon:
 
             opp = self.scanner.evaluate_opportunity(pair)
             if opp:
+                regime = opp.get('regime', 'support_dip_bounce')
                 is_sq = opp.get('is_squeeze', False)
-                req_idle = self.squeeze_idle_threshold_hours if is_sq else self.normal_idle_threshold_hours
+                if regime == 'breakout_retest_maker':
+                    req_idle = self.breakout_idle_threshold_hours
+                elif is_sq:
+                    req_idle = self.squeeze_idle_threshold_hours
+                else:
+                    req_idle = self.normal_idle_threshold_hours
+
                 if idle_h >= req_idle:
                     opp['cluster'] = c_name
                     logger.info(
-                        f"VALID CANDIDATE [{c_name.upper()}]: {opp['pair']} @ {opp['limit_price']} "
+                        f"VALID CANDIDATE [{c_name.upper()}] [{regime.upper()}]: {opp['pair']} @ {opp['limit_price']} "
                         f"(R:R {opp['rr_ratio']}:1, 4H ADX {opp['4h_adx']}, Squeeze={is_sq})"
                     )
                     if c_name not in cluster_opportunities:
@@ -475,7 +547,7 @@ class AISupervisorDaemon:
                     cluster_opportunities[c_name].append(opp)
                 else:
                     logger.info(
-                        f"Candidate deferred on {pair}: idle {idle_h:.1f}h < required {req_idle}h (Squeeze={is_sq})"
+                        f"Candidate deferred on {pair} [{regime}]: idle {idle_h:.1f}h < required {req_idle}h (Squeeze={is_sq})"
                     )
 
         self.state["last_scan_time"] = now.isoformat()
@@ -508,10 +580,12 @@ class AISupervisorDaemon:
             pair = target['pair']
             limit_price = target['limit_price']
             c_name = target['cluster']
+            regime = target.get('regime', 'support_dip_bounce')
+            entry_tag = "ai_breakout_retest" if regime == "breakout_retest_maker" else "ai_opportunistic_support"
 
             logger.info(
-                f"DISPATCHING DYNAMIC LIMIT ORDER: Cluster=[{c_name.upper()}], Pair={pair}, Price={limit_price}, "
-                f"Stake=${stake_amount} USDT, EntryTag='ai_opportunistic_support'"
+                f"DISPATCHING DYNAMIC LIMIT ORDER: Cluster=[{c_name.upper()}], Regime=[{regime}], Pair={pair}, Price={limit_price}, "
+                f"Stake=${stake_amount} USDT, EntryTag='{entry_tag}'"
             )
 
             success, res = self.client.force_enter(
@@ -519,7 +593,7 @@ class AISupervisorDaemon:
                 side="long",
                 price=limit_price,
                 stake_amount=stake_amount,
-                entry_tag="ai_opportunistic_support"
+                entry_tag=entry_tag
             )
 
             if success:
@@ -528,6 +602,8 @@ class AISupervisorDaemon:
                     "pair": pair,
                     "price": limit_price,
                     "cluster": c_name,
+                    "regime": regime,
+                    "entry_tag": entry_tag,
                     "time": now.isoformat(),
                     "rr_ratio": target['rr_ratio']
                 })
