@@ -128,6 +128,7 @@ def get_live_market_radar():
                 
                 # 1H Indicators
                 df1['rsi'] = ta.RSI(df1, timeperiod=14)
+                df1['ema9'] = ta.EMA(df1, timeperiod=9)
                 df1['ema21'] = ta.EMA(df1, timeperiod=21)
                 df1['ema50'] = ta.EMA(df1, timeperiod=50)
                 df1['ema200'] = ta.EMA(df1, timeperiod=200)
@@ -149,6 +150,7 @@ def get_live_market_radar():
                 r = float(df1['rsi'].iloc[-1])
                 k_val = float(df1['k'].iloc[-1])
                 d_val = float(df1['d'].iloc[-1])
+                ema9 = float(df1['ema9'].iloc[-1])
                 ema21 = float(df1['ema21'].iloc[-1])
                 ema50 = float(df1['ema50'].iloc[-1])
                 ema200_1h = float(df1['ema200'].iloc[-1])
@@ -239,6 +241,8 @@ def get_live_market_radar():
                 # --- AI Strategic Supervisor: Prospective Limit Order Candidate Analysis ---
                 df1['rolling_low_48'] = df1['low'].rolling(48).min()
                 df1['rolling_high_48'] = df1['high'].rolling(48).max()
+                df1['rolling_low_12'] = df1['low'].rolling(12).min()
+                df1['rolling_low_24'] = df1['low'].rolling(24).min()
                 
                 # Volatility Squeeze detection (Bollinger Bandwidth compression)
                 df1['bb_width'] = (boll['upperband'] - boll['lowerband']) / df1['bb_mid']
@@ -247,15 +251,42 @@ def get_live_market_radar():
 
                 support_floor = float(df1['rolling_low_48'].iloc[-2]) if not pd.isna(df1['rolling_low_48'].iloc[-2]) else float(df1['low'].min())
                 resistance_ceil = float(df1['rolling_high_48'].iloc[-2]) if not pd.isna(df1['rolling_high_48'].iloc[-2]) else float(df1['high'].max())
-                
-                dist_usd = c - support_floor
-                dist_pct = (dist_usd / c) * 100.0 if c > 0 else 0.0
+                local_floor_12 = float(df1['rolling_low_12'].iloc[-2]) if not pd.isna(df1['rolling_low_12'].iloc[-2]) else support_floor
+                local_floor_24 = float(df1['rolling_low_24'].iloc[-2]) if not pd.isna(df1['rolling_low_24'].iloc[-2]) else support_floor
 
                 dec = 4 if c < 10 else 2
                 support_floor = min(support_floor, c)
-                cand_limit_price = min(round(support_floor * 1.001, dec), round(c, dec))
-                target_tp = round(support_floor + 0.60 * (resistance_ceil - support_floor), dec)
-                stop_loss = round(support_floor * 0.992, dec)
+                dist_usd = c - support_floor
+                dist_pct = (dist_usd / c) * 100.0 if c > 0 else 0.0
+
+                # Check REGIME 3: Pre-Breakout Coiling & Volatility Compression (Ascending Micro-Floor)
+                range_span = resistance_ceil - support_floor
+                is_coiling = False
+                if range_span > 0:
+                    range_pos = (c - support_floor) / range_span
+                    dist_to_res = (resistance_ceil - c) / c
+                    is_upper_range = range_pos >= 0.50
+                    coiling_near_res = (dist_to_res >= 0.002) and (dist_to_res <= 0.040)
+                    rising_floor = local_floor_12 >= local_floor_24 * 0.998
+                    ema_hold = (c >= ema21 * 0.996) and (ema9 >= ema21 * 0.996)
+                    rsi_acc = 46.0 <= r <= 68.0
+                    squeeze_ok = is_squeeze or adx4 < 28.0
+
+                    if is_upper_range and coiling_near_res and rising_floor and ema_hold and rsi_acc and squeeze_ok:
+                        is_coiling = True
+
+                if is_coiling:
+                    cand_limit_price = min(round(ema9, dec), round(c * 0.9985, dec))
+                    cand_limit_price = max(cand_limit_price, round(local_floor_12, dec))
+                    stop_loss = round(local_floor_12 * 0.992, dec)
+                    target_tp = round(max(cand_limit_price * 1.035, resistance_ceil * 1.015), dec)
+                    support_floor = local_floor_12
+                    dist_usd = c - local_floor_12
+                    dist_pct = (dist_usd / c) * 100.0 if c > 0 else 0.0
+                else:
+                    cand_limit_price = min(round(support_floor * 1.001, dec), round(c, dec))
+                    target_tp = round(support_floor + 0.60 * (resistance_ceil - support_floor), dec)
+                    stop_loss = round(support_floor * 0.992, dec)
 
                 risk = cand_limit_price - stop_loss
                 if risk <= 0:
@@ -277,14 +308,18 @@ def get_live_market_radar():
                 tp_usd_projected = round(cand_stake * (tp_pct_roe / 100.0), 2)
                 sl_usd_projected = round(cand_stake * (sl_pct_roe / 100.0), 2)
 
-                if adx4 >= 30.0:
+                if is_coiling:
+                    ai_status = f"[PRE-BREAKOUT] Akumulasi Ascending Floor (${local_floor_12:,.{dec}f}) - Siaga Limit Bid ${cand_limit_price:,.{dec}f}"
+                    ai_stage = "PRE_BREAKOUT_COILING"
+                    ai_readiness = 95
+                elif adx4 >= 30.0:
                     ai_status = f"ADX 4H ({adx4:.1f}) Tren Kuat - Standby Menunggu Konsolidasi Range"
                     ai_stage = "TREND_FILTER"
                     ai_readiness = 35
-                elif r > 60.0:
-                    ai_status = f"RSI 1H ({r:.1f}) Overbought - Menunggu Koreksi Sehat ke Lantai Support"
+                elif r > 68.0:
+                    ai_status = f"RSI 1H ({r:.1f}) Overbought Ekstrem - Menunggu Koreksi Sehat"
                     ai_stage = "WAITING_PULLBACK"
-                    ai_readiness = 45
+                    ai_readiness = 40
                 elif r < 32.0:
                     ai_status = f"RSI 1H ({r:.1f}) Oversold Ekstrem - Menunggu Konfirmasi Rebound Wick"
                     ai_stage = "WAITING_REJECTION"
@@ -304,6 +339,8 @@ def get_live_market_radar():
 
                 # Bull Mode Conviction Score Calculation
                 bull_conv = 50
+                if is_coiling:
+                    bull_conv += 30
                 if r < 42.0:
                     bull_conv += 20
                 elif r < 52.0:

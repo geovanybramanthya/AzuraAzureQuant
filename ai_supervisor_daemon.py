@@ -208,6 +208,8 @@ class MarketScanner:
         # 48-hour rolling support and resistance on closed 1H candles
         df_1h['rolling_low_48'] = df_1h['low'].rolling(48).min()
         df_1h['rolling_high_48'] = df_1h['high'].rolling(48).max()
+        df_1h['rolling_low_12'] = df_1h['low'].rolling(12).min()
+        df_1h['rolling_low_24'] = df_1h['low'].rolling(24).min()
         df_1h['rsi'] = ta.RSI(df_1h['close'], timeperiod=14)
         df_1h['vol_mean_20'] = df_1h['volume'].rolling(20).mean()
         df_1h['ema_9'] = ta.EMA(df_1h['close'], timeperiod=9)
@@ -325,6 +327,59 @@ class MarketScanner:
                     'timestamp': candle['date']
                 }
 
+        # =========================================================================
+        # REGIME 3: Pre-Breakout Coiling & Volatility Compression (Ascending Base)
+        # =========================================================================
+        # Operates when price is accumulating in the upper half of 48h range,
+        # printing higher micro-floors and squeezing under resistance BEFORE breakout.
+        range_span = prev_resistance - prev_support
+        local_floor_12 = float(df_1h['rolling_low_12'].iloc[-3]) if 'rolling_low_12' in df_1h else None
+        local_floor_24 = float(df_1h['rolling_low_24'].iloc[-3]) if 'rolling_low_24' in df_1h else None
+
+        if range_span > 0 and local_floor_12 is not None and local_floor_24 is not None and not pd.isna(local_floor_12) and not pd.isna(local_floor_24):
+            range_pos = (candle['close'] - prev_support) / range_span
+            dist_to_res = (prev_resistance - candle['close']) / candle['close']
+            is_upper_range = range_pos >= 0.50
+            coiling_near_res = (dist_to_res >= 0.002) & (dist_to_res <= 0.040)
+            rising_floor = local_floor_12 >= local_floor_24 * 0.998
+            ema9_val = float(df_1h['ema_9'].iloc[-2])
+            ema21_val = float(df_1h['ema_21'].iloc[-2])
+            ema_hold = (candle['close'] >= ema21_val * 0.996) and (ema9_val >= ema21_val * 0.996)
+            rsi_acc = 46.0 <= candle['rsi'] <= 68.0
+            squeeze_ok = is_squeeze or (not pd.isna(latest_4h_adx) and latest_4h_adx < 28.0)
+
+            if is_upper_range and coiling_near_res and rising_floor and ema_hold and rsi_acc and squeeze_ok:
+                limit_bid = min(ema9_val, current_price * 0.9985)
+                limit_price = round(max(limit_bid, local_floor_12), dec)
+                stop_loss = round(local_floor_12 * 0.992, dec)
+                take_profit = round(max(limit_price * 1.035, prev_resistance * 1.015), dec)
+
+                risk = limit_price - stop_loss
+                if risk <= 0:
+                    risk = round(limit_price * 0.010, dec)
+                    stop_loss = round(limit_price - risk, dec)
+
+                reward = take_profit - limit_price
+                rr_ratio = round(reward / risk, 2) if risk > 0 else 1.80
+
+                if rr_ratio >= 1.60:
+                    return {
+                        'pair': pair,
+                        'regime': 'pre_breakout_coiling',
+                        'limit_price': limit_price,
+                        'current_price': current_price,
+                        'support_floor': round(local_floor_12, dec),
+                        'support_floor_48h': round(prev_support, dec),
+                        'stop_loss': stop_loss,
+                        'take_profit': take_profit,
+                        'target_tp': take_profit,
+                        'rr_ratio': round(rr_ratio, 2),
+                        '4h_adx': round(latest_4h_adx, 1),
+                        'rsi': round(candle['rsi'], 1),
+                        'is_squeeze': is_squeeze,
+                        'timestamp': candle['date']
+                    }
+
         return None
 
 
@@ -351,6 +406,7 @@ class AISupervisorDaemon:
         self.normal_idle_threshold_hours = 18.0
         self.squeeze_idle_threshold_hours = 12.0
         self.breakout_idle_threshold_hours = 6.0
+        self.coiling_idle_threshold_hours = 4.0
         self.max_portfolio_slots = int(self.config.get('max_open_trades', 3))
         
         # Cluster Diversification Guard (Max 1 position per cluster)
@@ -506,17 +562,17 @@ class AISupervisorDaemon:
 
         logger.info(
             f"Core Engine Idle Duration: {idle_h:.1f} hours "
-            f"(Breakout Gate: {self.breakout_idle_threshold_hours}h | Squeeze Gate: {self.squeeze_idle_threshold_hours}h | Normal Gate: {self.normal_idle_threshold_hours}h)"
+            f"(Coiling Gate: {self.coiling_idle_threshold_hours}h | Breakout Gate: {self.breakout_idle_threshold_hours}h | Squeeze Gate: {self.squeeze_idle_threshold_hours}h | Normal Gate: {self.normal_idle_threshold_hours}h)"
         )
 
         # 4. Check Opportunistic Entry Eligibility
-        min_required_idle = min(self.normal_idle_threshold_hours, self.squeeze_idle_threshold_hours, self.breakout_idle_threshold_hours)
+        min_required_idle = min(self.normal_idle_threshold_hours, self.squeeze_idle_threshold_hours, self.breakout_idle_threshold_hours, self.coiling_idle_threshold_hours)
         if idle_h < min_required_idle:
             logger.info(f"System not yet eligible for opportunistic maker entry (idle {idle_h:.1f}h < minimum {min_required_idle:.1f}h).")
             return
 
-        # 5. Scan whitelist pairs for Dual-Regime setups (Breakout-Retest 6h / Squeeze 12h / Support 18h)
-        logger.info("Scanning pairs across clusters for Dual-Regime setups (Breakout-Retest 6h / Squeeze 12h / Support 18h)...")
+        # 5. Scan whitelist pairs for Triple-Regime setups (Pre-Breakout Coiling 4h / Breakout-Retest 6h / Squeeze 12h / Support 18h)
+        logger.info("Scanning pairs across clusters for Triple-Regime setups (Pre-Breakout 4h / Breakout-Retest 6h / Squeeze 12h / Support 18h)...")
         cluster_opportunities = {}
         for pair in self.pairs:
             time.sleep(0.30)  # Pacing to protect Bybit REST rate limit (Code 10006)
@@ -529,7 +585,9 @@ class AISupervisorDaemon:
             if opp:
                 regime = opp.get('regime', 'support_dip_bounce')
                 is_sq = opp.get('is_squeeze', False)
-                if regime == 'breakout_retest_maker':
+                if regime == 'pre_breakout_coiling':
+                    req_idle = self.coiling_idle_threshold_hours
+                elif regime == 'breakout_retest_maker':
                     req_idle = self.breakout_idle_threshold_hours
                 elif is_sq:
                     req_idle = self.squeeze_idle_threshold_hours
@@ -557,7 +615,7 @@ class AISupervisorDaemon:
         self.save_state()
 
         if not cluster_opportunities:
-            logger.info("Scan complete: No valid opportunities meeting R:R >= 1.8 & idle criteria across available clusters.")
+            logger.info("Scan complete: No valid opportunities meeting R:R >= 1.6 & idle criteria across available clusters.")
             return
 
         # 6. Select highest R:R candidate per unoccupied cluster
@@ -581,7 +639,12 @@ class AISupervisorDaemon:
             limit_price = target['limit_price']
             c_name = target['cluster']
             regime = target.get('regime', 'support_dip_bounce')
-            entry_tag = "ai_breakout_retest" if regime == "breakout_retest_maker" else "ai_opportunistic_support"
+            if regime == "pre_breakout_coiling":
+                entry_tag = "ai_pre_breakout_coiling"
+            elif regime == "breakout_retest_maker":
+                entry_tag = "ai_breakout_retest"
+            else:
+                entry_tag = "ai_opportunistic_support"
 
             logger.info(
                 f"DISPATCHING DYNAMIC LIMIT ORDER: Cluster=[{c_name.upper()}], Regime=[{regime}], Pair={pair}, Price={limit_price}, "
@@ -617,7 +680,8 @@ class AISupervisorDaemon:
         logger.info("   AI STRATEGIC SUPERVISOR DAEMON (DYNAMIC WATERFALL MULTI-SLOT) ")
         logger.info("=================================================================")
         logger.info(f"Target pairs: {', '.join(self.pairs)}")
-        logger.info(f"Idle gates: Normal {self.normal_idle_threshold_hours}h / Squeeze {self.squeeze_idle_threshold_hours}h | Max Slots: {self.max_portfolio_slots}")
+        logger.info(f"Idle gates: Coiling {self.coiling_idle_threshold_hours}h / Breakout {self.breakout_idle_threshold_hours}h / Squeeze {self.squeeze_idle_threshold_hours}h / Normal {self.normal_idle_threshold_hours}h | Max Slots: {self.max_portfolio_slots}")
+        logger.info(f"Triple-Regimes: 1. Support Dip Bounce | 2. Breakout Retest Maker | 3. Pre-Breakout Coiling Maker")
         logger.info(f"Cluster diversification: Major Anchor (BTC/ETH), High-Beta Alt (SOL/ADA/DOGE/LINK), Defensive (PAXG)")
         logger.info(f"Freqtrade API target: {self.client.base_url}")
         
