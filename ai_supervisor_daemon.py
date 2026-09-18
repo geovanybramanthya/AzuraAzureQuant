@@ -348,7 +348,8 @@ class MarketScanner:
             rsi_acc = 46.0 <= candle['rsi'] <= 68.0
             squeeze_ok = is_squeeze or (not pd.isna(latest_4h_adx) and latest_4h_adx < 28.0)
 
-            if is_upper_range and coiling_near_res and rising_floor and ema_hold and rsi_acc and squeeze_ok:
+            macro_ok = macro_bull_4h
+            if is_upper_range and coiling_near_res and rising_floor and ema_hold and rsi_acc and squeeze_ok and macro_ok:
                 limit_bid = min(ema9_val, current_price * 0.9985)
                 limit_price = round(max(limit_bid, local_floor_12), dec)
                 stop_loss = round(local_floor_12 * 0.992, dec)
@@ -362,7 +363,7 @@ class MarketScanner:
                 reward = take_profit - limit_price
                 rr_ratio = round(reward / risk, 2) if risk > 0 else 1.80
 
-                if rr_ratio >= 1.60:
+                if rr_ratio >= 1.80:
                     return {
                         'pair': pair,
                         'regime': 'pre_breakout_coiling',
@@ -406,7 +407,7 @@ class AISupervisorDaemon:
         self.normal_idle_threshold_hours = 18.0
         self.squeeze_idle_threshold_hours = 12.0
         self.breakout_idle_threshold_hours = 6.0
-        self.coiling_idle_threshold_hours = 4.0
+        self.coiling_idle_threshold_hours = 12.0
         self.max_portfolio_slots = int(self.config.get('max_open_trades', 3))
         
         # Cluster Diversification Guard (Max 1 position per cluster)
