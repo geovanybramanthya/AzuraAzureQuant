@@ -46,7 +46,7 @@ class ApexDualAlpha_Omni_V11_OptionB(IStrategy):
     trailing_stop = True
     trailing_stop_positive = 0.217
     trailing_stop_positive_offset = 0.249
-    trailing_only_offset_is_reached = False
+    trailing_only_offset_is_reached = True
 
     order_types = {
         "entry": "limit",
@@ -89,13 +89,20 @@ class ApexDualAlpha_Omni_V11_OptionB(IStrategy):
         if "ETH" in pair and trade_duration >= 16.0 and current_profit >= 0.0080:
             return "eth_profit_bank_tp"
 
-        # 4. Stale decay cutoff at 36 hours
-        if trade_duration > 36.0 and current_profit < -0.010:
-            return "time_decay_stale_loss"
-        
-        # 5. Micro-profit closure at 48 hours
-        if trade_duration > 48.0 and current_profit < 0.005:
-            return "time_decay_48h_cutoff"
+        # 4. Tailored Exits for HYPE (Hyper-Growth Momentum L1)
+        if "HYPE" in pair:
+            if current_profit >= 0.045 and trade_duration >= 6.0:
+                return "hype_quick_tp"
+            if trade_duration > 72.0 and current_profit < -0.050:
+                return "hype_stale_loss"
+            if trade_duration > 96.0 and current_profit < 0.010:
+                return "hype_time_cutoff"
+        else:
+            # Standard tight pruning for mature pairs (BTC, ETH, SOL, ADA, DOGE, LINK, PAXG)
+            if trade_duration > 36.0 and current_profit < -0.010:
+                return "time_decay_stale_loss"
+            if trade_duration > 48.0 and current_profit < 0.005:
+                return "time_decay_48h_cutoff"
         
         return None
 
@@ -189,8 +196,8 @@ class ApexDualAlpha_Omni_V11_OptionB(IStrategy):
         )
 
         # 2. SHORT: Precision Tailored Resistance Exhaustion Fade
-        # BTC is kept Long-Only to eliminate 7.0x leverage counter-trend risk
-        if "BTC" not in pair:
+        # BTC & HYPE are kept Long-Only to eliminate counter-trend risk
+        if "BTC" not in pair and "HYPE" not in pair:
             if "SOL" in pair:
                 adx_short_gate = 22.0
                 rsi_min_short = 56.0

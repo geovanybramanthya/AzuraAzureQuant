@@ -364,6 +364,7 @@ class AISupervisorDaemon:
         self.clusters = {
             'major': ['BTC/USDT:USDT', 'ETH/USDT:USDT'],
             'alt': ['SOL/USDT:USDT', 'ADA/USDT:USDT', 'DOGE/USDT:USDT', 'LINK/USDT:USDT'],
+            'momentum': ['HYPE/USDT:USDT'],
             'defensive': ['PAXG/USDT:USDT']
         }
         
@@ -557,7 +558,13 @@ class AISupervisorDaemon:
                 continue
 
             # Stale pruning rule: between 18h and 24h, if underwater <= -1.5% spot on FILLED positions
-            if not is_unfilled and 18.0 <= duration_h <= 24.0 and current_profit_pct <= -1.5:
+            # HYPE is excluded from the tight -1.5% 18h cutoff due to its 122% annualized volatility
+            if "HYPE" in pair:
+                stale_trigger = (duration_h >= 48.0 and current_profit_pct <= -4.0)
+            else:
+                stale_trigger = (18.0 <= duration_h <= 24.0 and current_profit_pct <= -1.5)
+
+            if not is_unfilled and stale_trigger:
                 if trade_id not in self.state["pruned_trades"]:
                     logger.warning(
                         f"PRUNING TRIGGERED for Trade #{trade_id} ({pair}): "

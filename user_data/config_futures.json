@@ -44,7 +44,8 @@
             "ADA/USDT:USDT",
             "DOGE/USDT:USDT",
             "LINK/USDT:USDT",
-            "PAXG/USDT:USDT"
+            "PAXG/USDT:USDT",
+            "HYPE/USDT:USDT"
         ],
         "pair_blacklist": []
     },
