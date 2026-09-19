@@ -345,19 +345,19 @@ class AISupervisorDaemon:
         pw = api_cfg.get("password", "")
 
         self.client = FreqtradeClient(f"http://{ip}:{port}", user, pw)
-        self.pairs = [
+        self.pairs = self.config.get("exchange", {}).get("pair_whitelist", [
             "BTC/USDT:USDT",
             "ETH/USDT:USDT",
             "PAXG/USDT:USDT",
             "DOGE/USDT:USDT"
-        ]
+        ])
         self.scanner = MarketScanner(self.pairs)
 
         self.normal_idle_threshold_hours = 18.0
         self.squeeze_idle_threshold_hours = 12.0
         self.breakout_idle_threshold_hours = 6.0
         self.coiling_idle_threshold_hours = 1.0
-        self.max_portfolio_slots = int(self.config.get('max_open_trades', 4))
+        self.max_portfolio_slots = int(self.config.get('max_open_trades', 3))
         self.max_ai_slots = 1
         
         # Cluster Diversification Guard (Max 1 position per cluster)
@@ -380,8 +380,8 @@ class AISupervisorDaemon:
 
     def get_available_ai_slots(self, core_active_count: int, ai_active_count: int) -> int:
         """Dedicated Multi-Slot Architecture:
-        Total portfolio slots = 4.
-        Quant Core is guaranteed up to 3 slots without any blocking.
+        Total portfolio slots = 3.
+        Quant Core is guaranteed up to 2 slots without any blocking.
         AI Supervisor has 1 dedicated slot and can never exceed max_ai_slots (1).
         """
         if (core_active_count + ai_active_count) < self.max_portfolio_slots and ai_active_count < self.max_ai_slots:
@@ -625,10 +625,7 @@ class AISupervisorDaemon:
         all_trades = self.client.get_trades(limit=5)
         
         last_event_time = None
-        if core_active_count >= 2:
-            logger.info("Core engine has 2+ slots occupied. Waiting for core exits to protect portfolio margin.")
-            return
-        elif all_trades:
+        if all_trades:
             closed_dates = []
             for tr in all_trades:
                 c_str = tr.get('close_date')
