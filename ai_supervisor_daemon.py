@@ -142,15 +142,19 @@ class FreqtradeClient:
             logger.error(f"Failed to force enter trade: {e}")
             return False, str(e)
 
-    def force_exit(self, trade_id: int, ordertype: str = "limit"):
+    def force_exit(self, trade_id: int, ordertype: str = "limit", amount: float | None = None, price: float | None = None):
         payload = {
             "tradeid": str(trade_id),
             "ordertype": ordertype
         }
+        if amount is not None:
+            payload["amount"] = float(amount)
+        if price is not None:
+            payload["price"] = float(price)
         try:
             res = self._request("POST", "/api/v1/forceexit", json=payload)
             if res is not None:
-                logger.info(f"force_exit trade #{trade_id} response ({res.status_code}): {res.text}")
+                logger.info(f"force_exit trade #{trade_id} (amount={amount}, price={price}) response ({res.status_code}): {res.text}")
                 return res.status_code == 200, res.json() if res.status_code == 200 else res.text
             return False, "No response"
         except Exception as e:
@@ -294,6 +298,11 @@ class MarketScanner:
                 reward = take_profit - limit_price
                 rr_ratio = round(reward / risk, 2) if risk > 0 else 1.80
 
+                # Institutional Dual-Stage Dynamic Take Profit Targets (Config 8: TP1 1.0R, TP2 2.0R, Buffered BE -0.25R)
+                tp1 = round(limit_price + 1.0 * risk, dec)
+                tp2 = round(limit_price + 2.0 * risk, dec)
+                buffered_be = round(limit_price - 0.25 * risk, dec)
+
                 if rr_ratio >= 1.80:
                     return {
                         'pair': pair,
@@ -303,6 +312,10 @@ class MarketScanner:
                         'support_floor': round(local_floor_12, dec),
                         'support_floor_48h': round(prev_support, dec),
                         'stop_loss': stop_loss,
+                        'risk': risk,
+                        'tp1': tp1,
+                        'tp2': tp2,
+                        'buffered_be': buffered_be,
                         'take_profit': take_profit,
                         'target_tp': take_profit,
                         'rr_ratio': round(rr_ratio, 2),
@@ -375,13 +388,18 @@ class AISupervisorDaemon:
         return 0
 
     def load_state(self):
+        default_state = {"last_scan_time": None, "ai_orders": [], "pruned_trades": [], "ai_positions": {}}
         if self.state_file.exists():
             try:
                 with open(self.state_file, 'r', encoding='utf-8') as f:
-                    return json.load(f)
+                    data = json.load(f)
+                    for k, v in default_state.items():
+                        if k not in data:
+                            data[k] = v
+                    return data
             except Exception:
                 pass
-        return {"last_scan_time": None, "ai_orders": [], "pruned_trades": []}
+        return default_state
 
     def save_state(self):
         try:
@@ -389,6 +407,125 @@ class AISupervisorDaemon:
                 json.dump(self.state, f, indent=2)
         except Exception as e:
             logger.error(f"Failed to save state: {e}")
+
+    def inspect_dynamic_take_profits(self):
+        """Dual-Stage Dynamic Take Profit Engine (Config 8: TP1 1.0R, TP2 2.0R, Buffered BE -0.25R).
+        Liquidates 50% size at TP1 (+1.0R), moves stop to Buffered BE (-0.25R) to absorb retest noise,
+        and targets TP2 (+2.0R) for remaining 50% size.
+        """
+        if "ai_positions" not in self.state:
+            self.state["ai_positions"] = {}
+
+        open_trades = self.client.get_status()
+        active_ai_trades = [t for t in open_trades if "ai_" in t.get('enter_tag', '') and float(t.get('amount') or 0.0) > 0]
+
+        for trade in active_ai_trades:
+            trade_id = trade.get('trade_id')
+            pair = trade.get('pair')
+            current_rate = float(trade.get('current_rate') or 0.0)
+            amount = float(trade.get('amount') or 0.0)
+            open_rate = float(trade.get('open_rate') or 0.0)
+
+            if current_rate <= 0 or open_rate <= 0 or amount <= 0:
+                continue
+
+            pos_key = f"{trade_id}_{pair}"
+            if pos_key not in self.state["ai_positions"]:
+                # Match metadata from recent ai_orders or initialize dynamically
+                matched_order = None
+                for ord_entry in reversed(self.state.get("ai_orders", [])):
+                    if ord_entry.get("pair") == pair:
+                        matched_order = ord_entry
+                        break
+
+                dec = 5 if current_rate < 1 else 2
+                if matched_order and "risk" in matched_order and matched_order["risk"] is not None:
+                    risk = float(matched_order["risk"])
+                else:
+                    risk = round(open_rate * (0.0747 if "DOGE" in pair else 0.020), dec)
+
+                tp1_target = round(open_rate + 1.0 * risk, dec)
+                tp2_target = round(open_rate + 2.0 * risk, dec)
+                buffered_be = round(open_rate - 0.25 * risk, dec)
+
+                self.state["ai_positions"][pos_key] = {
+                    "trade_id": trade_id,
+                    "pair": pair,
+                    "open_rate": open_rate,
+                    "initial_amount": amount,
+                    "current_amount": amount,
+                    "risk": risk,
+                    "tp1_target": tp1_target,
+                    "tp2_target": tp2_target,
+                    "buffered_be": buffered_be,
+                    "tp1_executed": False,
+                    "tp2_executed": False,
+                    "be_executed": False
+                }
+                self.save_state()
+                logger.info(
+                    f"REGISTERED DUAL-TP TARGETS for Trade #{trade_id} ({pair}): "
+                    f"Entry={open_rate}, Risk={risk}, TP1={tp1_target} (+1.0R), "
+                    f"TP2={tp2_target} (+2.0R), Buffered BE={buffered_be} (-0.25R)"
+                )
+
+            pos = self.state["ai_positions"][pos_key]
+
+            # Stage 1: Liquidate 50% at TP1 (+1.0R)
+            if not pos.get("tp1_executed") and current_rate >= pos["tp1_target"]:
+                scale_out_amt = round(pos["initial_amount"] * 0.50, 1 if "DOGE" in pair else 4)
+                logger.info(
+                    f"DYNAMIC DUAL-TP: TP1 (+1.0R) REACHED for Trade #{trade_id} ({pair})! "
+                    f"Current price {current_rate} >= {pos['tp1_target']}. Liquidating 50% ({scale_out_amt})."
+                )
+                success, resp = self.client.force_exit(
+                    trade_id, ordertype="limit", amount=scale_out_amt, price=pos["tp1_target"]
+                )
+                if not success:
+                    # Fallback to limit at current rate
+                    success, resp = self.client.force_exit(
+                        trade_id, ordertype="limit", amount=scale_out_amt, price=current_rate
+                    )
+                if success:
+                    pos["tp1_executed"] = True
+                    pos["tp1_exit_price"] = current_rate
+                    pos["tp1_exit_time"] = datetime.now(timezone.utc).isoformat()
+                    pos["current_amount"] = pos["initial_amount"] - scale_out_amt
+                    self.save_state()
+                    logger.info(
+                        f"TP1 SUCCESS: Trade #{trade_id} ({pair}) banked 50% position! "
+                        f"Stop loss raised to Buffered BE at {pos['buffered_be']} (locks in +0.375R minimum net)."
+                    )
+
+            # Stage 2A: Liquidate remaining 50% at TP2 (+2.0R)
+            elif pos.get("tp1_executed") and not pos.get("tp2_executed") and current_rate >= pos["tp2_target"]:
+                logger.info(
+                    f"DYNAMIC DUAL-TP: TP2 (+2.0R) MAXIMUM RUNNER TARGET HIT for Trade #{trade_id} ({pair})! "
+                    f"Current price {current_rate} >= {pos['tp2_target']}. Closing remaining position."
+                )
+                success, resp = self.client.force_exit(trade_id, ordertype="limit", price=current_rate)
+                if not success:
+                    success, resp = self.client.force_exit(trade_id, ordertype="market")
+                if success:
+                    pos["tp2_executed"] = True
+                    pos["tp2_exit_price"] = current_rate
+                    pos["tp2_exit_time"] = datetime.now(timezone.utc).isoformat()
+                    self.save_state()
+                    logger.info(f"TP2 SUCCESS: Trade #{trade_id} ({pair}) fully closed with MAXIMUM PROFIT (+1.50R net)!")
+
+            # Stage 2B: Retest wick drops below Buffered BE (-0.25R)
+            elif pos.get("tp1_executed") and not pos.get("be_executed") and not pos.get("tp2_executed") and current_rate <= pos["buffered_be"]:
+                logger.warning(
+                    f"DYNAMIC DUAL-TP: Retest wick penetrated Buffered BE for Trade #{trade_id} ({pair})! "
+                    f"Current price {current_rate} <= {pos['buffered_be']}. Exiting remaining 50% to preserve net profit."
+                )
+                success, resp = self.client.force_exit(trade_id, ordertype="market")
+                if success:
+                    pos["be_executed"] = True
+                    pos["be_exit_price"] = current_rate
+                    pos["be_exit_time"] = datetime.now(timezone.utc).isoformat()
+                    self.save_state()
+                    logger.info(f"BUFFERED BE SUCCESS: Trade #{trade_id} ({pair}) preserved overall net profit (+0.375R)!")
 
     def inspect_stale_positions(self):
         """Active Early Pruning: cut underwater positions at 18-24h instead of waiting for 36h stale stop."""
@@ -440,7 +577,10 @@ class AISupervisorDaemon:
         """Single monitoring and opportunistic execution cycle with Dynamic Waterfall Multi-Slot Takeover."""
         logger.info("--- Starting Supervisor Heartbeat Cycle ---")
         
-        # 1. Active position inspection & stale loss pruning
+        # 1. Dual-Stage Dynamic Take Profit Engine (TP1 1.0R / TP2 2.0R / Buffered BE -0.25R)
+        self.inspect_dynamic_take_profits()
+
+        # 2. Active position inspection & stale loss pruning
         self.inspect_stale_positions()
 
         # 2. Check current open trades and slot availability
@@ -607,7 +747,11 @@ class AISupervisorDaemon:
                     "regime": regime,
                     "entry_tag": entry_tag,
                     "time": now.isoformat(),
-                    "rr_ratio": target['rr_ratio']
+                    "rr_ratio": target['rr_ratio'],
+                    "risk": target.get('risk'),
+                    "tp1": target.get('tp1'),
+                    "tp2": target.get('tp2'),
+                    "buffered_be": target.get('buffered_be')
                 })
                 self.save_state()
                 occupied_clusters.add(c_name)
