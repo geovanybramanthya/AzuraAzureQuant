@@ -706,6 +706,83 @@ class TestNewsCatalystExecutionE2E(unittest.TestCase):
 
         print("PASS: test_run_cycle_radar_preservation_when_slots_full")
 
+    # =========================================================================
+    # TEST 11: DISPATCH NEWS CATALYST SINGLE SCALING INTEGRATION
+    # =========================================================================
+    def test_dispatch_news_catalyst_single_scaling(self):
+        """Verify that news catalyst dispatch passes base_stake to force_enter so custom_stake_amount scales exactly once (0.60x)."""
+        with patch.object(AISupervisorDaemon, "__init__", lambda x: None):
+            daemon = AISupervisorDaemon()
+            daemon.pairs = ["BTC/USDT:USDT"]
+            daemon.max_portfolio_slots = 3
+            daemon.client = MagicMock()
+            daemon.scanner = MagicMock()
+            daemon.state = {"ai_orders": [], "pruned_trades": [], "ai_candidate_radar": []}
+            daemon.save_state = MagicMock()
+            daemon.normal_idle_threshold_hours = 0.0
+            daemon.squeeze_idle_threshold_hours = 0.0
+            daemon.breakout_idle_threshold_hours = 0.0
+            daemon.coiling_idle_threshold_hours = 0.0
+
+            daemon.get_pair_cluster = MagicMock(return_value="major")
+            daemon.get_sentiment_state = MagicMock(return_value=self.valid_sent_state)
+            daemon.get_derivatives_state = MagicMock(return_value=self.valid_deriv_state)
+            daemon.get_available_ai_slots = MagicMock(return_value=1)
+
+            daemon.client.get_status.return_value = []
+            daemon.client.get_trades.return_value = []
+            daemon.client.get_balance.return_value = {"total": 1000.0}
+            daemon.client.force_enter.return_value = (True, {"status": "ok"})
+
+            mock_news = {
+                "pair": "BTC/USDT:USDT",
+                "regime": "news_catalyst",
+                "limit_price": 84000.0,
+                "headline_score": 0.70,
+                "volume_ratio": 2.8,
+                "thrust_ratio": 1.6,
+                "rr_ratio": 2.0,
+                "stake_scale": 0.60,
+                "risk": 1260.0,
+                "tp1": 85260.0,
+                "tp2": 86520.0,
+                "buffered_be": 84189.0
+            }
+            daemon.scanner.evaluate_news_catalyst_opportunity.return_value = mock_news
+            daemon.scanner.evaluate_opportunity.return_value = None
+
+            daemon.run_cycle()
+
+            daemon.client.force_enter.assert_called_once()
+            call_kwargs = daemon.client.force_enter.call_args.kwargs
+            
+            # Base stake for 1000 total balance with 3 slots is: (1000 / 3) * 0.95 = 316.67
+            self.assertEqual(call_kwargs["pair"], "BTC/USDT:USDT")
+            self.assertEqual(call_kwargs["entry_tag"], "ai_news_catalyst_long")
+            self.assertEqual(call_kwargs["stake_amount"], 316.67, "force_enter must receive base_stake so custom_stake_amount can scale cleanly")
+
+            # Check that recorded ai_orders has the effective scaled stake (190.00 = 316.67 * 0.60)
+            self.assertEqual(len(daemon.state["ai_orders"]), 1)
+            recorded_order = daemon.state["ai_orders"][0]
+            self.assertEqual(recorded_order["stake_amount"], 190.00, "Recorded stake in state must reflect 0.60x scaling")
+
+            # Verify that when Freqtrade custom_stake_amount processes this proposed stake, it scales to 190.00
+            strat = ApexDualAlpha_Omni_V12_LinkCalibrated(config={})
+            simulated_freqtrade_stake = strat.custom_stake_amount(
+                pair="BTC/USDT:USDT",
+                current_time=datetime.now(timezone.utc),
+                current_rate=84000.0,
+                proposed_stake=call_kwargs["stake_amount"],
+                min_stake=10.0,
+                max_stake=1000.0,
+                leverage=7.0,
+                entry_tag=call_kwargs["entry_tag"],
+                side="long"
+            )
+            self.assertAlmostEqual(simulated_freqtrade_stake, 190.002, places=1, msg="Final trade stake in Freqtrade must be exactly 0.60x of base stake (not double scaled)")
+
+        print("PASS: test_dispatch_news_catalyst_single_scaling")
+
 
 if __name__ == "__main__":
     unittest.main()

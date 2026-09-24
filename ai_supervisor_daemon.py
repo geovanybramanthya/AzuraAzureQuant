@@ -807,6 +807,8 @@ class AISupervisorDaemon:
                 limit_rate = None
                 if orders:
                     limit_rate = float(orders[0].get('safe_price') or orders[0].get('price') or 0.0)
+                else:
+                    limit_rate = float(trade.get('open_rate') or 0.0)
                 current_rate = float(trade.get('current_rate') or 0.0)
                 price_drift_pct = ((current_rate - limit_rate) / limit_rate * 100.0) if (limit_rate and limit_rate > 0 and current_rate > 0) else 0.0
 
@@ -1069,16 +1071,20 @@ class AISupervisorDaemon:
             
             if regime == "news_catalyst":
                 entry_tag = "ai_news_catalyst_long"
-                stake_amount = round(base_stake * target.get('stake_scale', 0.60), 2)
+                final_stake = round(base_stake * target.get('stake_scale', 0.60), 2)
             elif regime == "pre_breakout_coiling":
                 entry_tag = "ai_pre_breakout_coiling"
-                stake_amount = base_stake
+                final_stake = base_stake
             elif regime == "breakout_retest_maker":
                 entry_tag = "ai_breakout_retest"
-                stake_amount = base_stake
+                final_stake = base_stake
             else:
                 entry_tag = "ai_opportunistic_support"
-                stake_amount = base_stake
+                final_stake = base_stake
+
+            # Pass base_stake to force_enter: Freqtrade's custom_stake_amount in ApexDualAlpha_Omni_V12_LinkCalibrated
+            # dynamically scales news_catalyst trades by 0.60x (and applies co-risk throttling if applicable).
+            stake_amount = base_stake
 
             # Secondary Event Risk Blackout Safety Check
             sent_state = self.get_sentiment_state()
@@ -1096,7 +1102,7 @@ class AISupervisorDaemon:
 
             logger.info(
                 f"DISPATCHING DYNAMIC LIMIT ORDER: Cluster=[{c_name.upper()}], Regime=[{regime}], Pair={pair}, Price={limit_price}, "
-                f"Stake=${stake_amount} USDT, EntryTag='{entry_tag}'"
+                f"ProposedStake=${stake_amount} USDT (Effective=${final_stake} USDT via custom_stake_amount), EntryTag='{entry_tag}'"
             )
 
             success, res = self.client.force_enter(
@@ -1115,7 +1121,7 @@ class AISupervisorDaemon:
                     "cluster": c_name,
                     "regime": regime,
                     "entry_tag": entry_tag,
-                    "stake_amount": stake_amount,
+                    "stake_amount": final_stake,
                     "time": now.isoformat(),
                     "rr_ratio": target['rr_ratio'],
                     "risk": target.get('risk'),
