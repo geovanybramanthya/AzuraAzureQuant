@@ -1,0 +1,80 @@
+{
+  "Exp 0: Baseline Checkpoint (Config 08)": {
+    "total_trades": 823,
+    "wins": 607,
+    "losses": 216,
+    "winrate_pct": 73.75,
+    "final_wallet": 271204.55,
+    "net_profit_usdt": 270204.55,
+    "net_profit_pct": 27020.45,
+    "max_drawdown_pct": 20.56,
+    "profit_factor": 2.15,
+    "trades_per_day": 0.83,
+    "news_trades_executed": 0
+  },
+  "Exp 1: Unrestricted News Execution (Na\u00efve)": {
+    "total_trades": 1614,
+    "wins": 880,
+    "losses": 734,
+    "winrate_pct": 54.52,
+    "final_wallet": 2873457.97,
+    "net_profit_usdt": 2872457.97,
+    "net_profit_pct": 287245.8,
+    "max_drawdown_pct": 26.39,
+    "profit_factor": 1.79,
+    "trades_per_day": 1.63,
+    "news_trades_executed": 1173
+  },
+  "Exp 2: Sentiment Polarity Gate Only": {
+    "total_trades": 1792,
+    "wins": 1002,
+    "losses": 790,
+    "winrate_pct": 55.92,
+    "final_wallet": 29086423.28,
+    "net_profit_usdt": 29085423.28,
+    "net_profit_pct": 2908542.33,
+    "max_drawdown_pct": 28.69,
+    "profit_factor": 1.67,
+    "trades_per_day": 1.81,
+    "news_trades_executed": 1202
+  },
+  "Exp 3: Technical Corroborated News Execution": {
+    "total_trades": 849,
+    "wins": 613,
+    "losses": 236,
+    "winrate_pct": 72.2,
+    "final_wallet": 267214.75,
+    "net_profit_usdt": 266214.75,
+    "net_profit_pct": 26621.47,
+    "max_drawdown_pct": 20.56,
+    "profit_factor": 2.1,
+    "trades_per_day": 0.86,
+    "news_trades_executed": 32
+  },
+  "Exp 4: Multi-Gate Defense (0.60x Stake)": {
+    "total_trades": 846,
+    "wins": 613,
+    "losses": 233,
+    "winrate_pct": 72.46,
+    "final_wallet": 283313.39,
+    "net_profit_usdt": 282313.39,
+    "net_profit_pct": 28231.34,
+    "max_drawdown_pct": 20.56,
+    "profit_factor": 2.12,
+    "trades_per_day": 0.86,
+    "news_trades_executed": 29
+  },
+  "Exp 5: Fully Optimized Multi-Gate + Rapid Prune": {
+    "total_trades": 846,
+    "wins": 610,
+    "losses": 236,
+    "winrate_pct": 72.1,
+    "final_wallet": 280843.95,
+    "net_profit_usdt": 279843.95,
+    "net_profit_pct": 27984.39,
+    "max_drawdown_pct": 20.56,
+    "profit_factor": 2.13,
+    "trades_per_day": 0.86,
+    "news_trades_executed": 29
+  }
+}

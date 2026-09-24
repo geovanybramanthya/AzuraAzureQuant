@@ -54,9 +54,10 @@ def get_config_info():
     initial_wallet = 1000.0
     whitelist = [
         'BTC/USDT:USDT', 'ETH/USDT:USDT', 'SOL/USDT:USDT',
-        'ADA/USDT:USDT', 'DOGE/USDT:USDT', 'LINK/USDT:USDT', 'PAXG/USDT:USDT'
+        'ADA/USDT:USDT', 'DOGE/USDT:USDT', 'LINK/USDT:USDT',
+        'PAXG/USDT:USDT', 'HYPE/USDT:USDT'
     ]
-    max_open_trades = 2
+    max_open_trades = 3
     if CONFIG_PATH.exists():
         try:
             with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
@@ -65,7 +66,7 @@ def get_config_info():
                 wl = cfg.get('exchange', {}).get('pair_whitelist')
                 if wl and isinstance(wl, list):
                     whitelist = wl
-                max_open_trades = int(cfg.get('max_open_trades', 2))
+                max_open_trades = int(cfg.get('max_open_trades', 3))
         except Exception:
             pass
     return {
@@ -87,6 +88,19 @@ def get_freqtrade_pid():
         return candidates[-1]
     return None
 
+def get_freqtrade_strategy():
+    for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
+        try:
+            cmdline = proc.info.get('cmdline') or []
+            cmd_str = " ".join(cmdline)
+            if 'freqtrade' in cmd_str and '--strategy' in cmdline:
+                idx = cmdline.index('--strategy')
+                if idx + 1 < len(cmdline):
+                    return cmdline[idx + 1]
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            pass
+    return 'ApexDualAlpha_Omni_V12_LinkCalibrated'
+
 def get_session_start_time():
     for proc in psutil.process_iter(['pid', 'name', 'cmdline', 'create_time']):
         try:
@@ -99,6 +113,51 @@ def get_session_start_time():
             pass
     return datetime.now().strftime('%Y-%m-%d %H:%M:%S WIB')
 
+def get_sentiment_data():
+    sent_path = Path('user_data/data/sentiment_state.json')
+    if sent_path.exists():
+        try:
+            with open(sent_path, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {
+        'last_updated': datetime.now().isoformat(),
+        'daemon_status': 'STANDBY',
+        'macro_sentiment': {
+            'score': 0.0,
+            'regime': 'NEUTRAL',
+            'sample_size': 0,
+            'bullish_count': 0,
+            'bearish_count': 0,
+            'neutral_count': 0
+        },
+        'pairs': {},
+        'recent_feed': []
+    }
+
+def get_derivatives_data():
+    deriv_path = Path('user_data/data/derivatives_state.json')
+    if deriv_path.exists():
+        try:
+            with open(deriv_path, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {
+        'last_updated': datetime.now().isoformat(),
+        'collector_status': 'STANDBY',
+        'macro_derivatives': {
+            'total_open_interest_usd': 0.0,
+            'total_turnover_24h_usd': 0.0,
+            'weighted_funding_rate_8h_pct': 0.0,
+            'weighted_funding_apr_pct': 0.0,
+            'macro_leverage_state': 'STANDBY',
+            'active_squeeze_alerts': []
+        },
+        'pairs': {}
+    }
+
 def get_live_market_radar():
     global _radar_cache, _ai_candidate_cache
     now = time.time()
@@ -109,6 +168,8 @@ def get_live_market_radar():
     pairs = cfg_info['whitelist']
     radar = []
     ai_candidates = []
+    sent_data = get_sentiment_data()
+    deriv_data = get_derivatives_data()
     try:
         exchange = ccxt.bybit({'options': {'defaultType': 'linear'}, 'timeout': 10000})
         tickers = {}
@@ -197,36 +258,70 @@ def get_live_market_radar():
                 if is_sol:
                     ema_short_ok = ema_short_ok and (c < ema200_1h)
                 
-                # Pillar 4: Stochastic Trigger
-                stoch_cross_bull = (k_val > d_val) and (k_val < 54.0)
-                stoch_cross_bear = (k_val < d_val) and (k_val > 55.0)
-                
-                # Calculate True Signal Readiness Conviction (0% - 100%)
+                # Pillar 4: Stochastic Trigger & Precision Crossover Detection
+                k_prev = float(df1['k'].iloc[-2]) if len(df1['k']) >= 2 else k_val
+                d_prev = float(df1['d'].iloc[-2]) if len(df1['d']) >= 2 else d_val
+
+                stoch_fresh_cross_bull = (k_prev <= d_prev) and (k_val > d_val)
+                stoch_fresh_cross_bear = (k_prev >= d_prev) and (k_val < d_val)
+                stoch_under_54 = (k_val < 54.0)
+                stoch_over_55 = (k_val > 55.0)
+
+                # Pillar 5: Candlestick Geometry & Volume Confirmation
+                is_green = c > float(df1['open'].iloc[-1])
+                lower_wick = min(float(df1['open'].iloc[-1]), c) - l
+                body_size = abs(c - float(df1['open'].iloc[-1]))
+                wick_or_green = is_green or (lower_wick > body_size * 0.68)
+                vol_20 = float(df1['volume'].rolling(20).mean().iloc[-1])
+                vol_ok = float(df1['volume'].iloc[-1]) > vol_20 * 0.70
+
+                # Calculate Calibrated Signal Readiness Conviction (0% - 100%)
                 readiness = 0
                 if macro_bull:
                     readiness += 35
                     if rsi_long_ok: readiness += 25
-                    if ema_long_ok: readiness += 20
-                    if stoch_cross_bull: readiness += 20
+                    if ema_long_ok: readiness += 15
+
+                    if stoch_fresh_cross_bull and stoch_under_54 and wick_or_green and vol_ok and ema_long_ok and rsi_long_ok:
+                        readiness = 100
+                        action_status = 'SIGNAL TRIGGER VALID (Siaga Eksekusi pada Close Candle)'
+                    elif stoch_fresh_cross_bull and stoch_under_54:
+                        readiness += 25
+                        action_status = 'Crossover Valid (Menunggu Konfirmasi Volume/EMA)'
+                    elif (k_val > d_val) and stoch_under_54:
+                        readiness += 10
+                        action_status = 'Setup Bullish (Stokastik K>D Berjalan, Tunggu Cross Baru)'
+                    elif (k_val > d_val) and not stoch_under_54:
+                        readiness += 5
+                        action_status = 'Setup Bullish (Stokastik >54, Menunggu Pullback Baru)'
+                    elif k_val <= d_val and stoch_under_54:
+                        readiness += 5
+                        action_status = 'Setup Berkembang (Menunggu Crossover K melintasi D)'
+                    else:
+                        action_status = 'Standby (Menunggu Stochastic Masuk Zona Bawah <54)'
                 elif macro_bear and not is_btc:
                     readiness += 35
                     if rsi_short_ok: readiness += 25
-                    if ema_short_ok: readiness += 20
-                    if stoch_cross_bear: readiness += 20
+                    if ema_short_ok: readiness += 15
+
+                    if stoch_fresh_cross_bear and stoch_over_55 and ema_short_ok and rsi_short_ok:
+                        readiness = 100
+                        action_status = 'SIGNAL TRIGGER SHORT VALID (Siaga Eksekusi pada Close)'
+                    elif stoch_fresh_cross_bear and stoch_over_55:
+                        readiness += 25
+                        action_status = 'Crossover Bearish Valid (Menunggu Konfirmasi Close)'
+                    elif (k_val < d_val) and stoch_over_55:
+                        readiness += 10
+                        action_status = 'Setup Bearish (Stokastik K<D Berjalan, Tunggu Cross Baru)'
+                    else:
+                        action_status = 'Setup Bearish Berkembang (Menunggu Trigger)'
                 else:
                     readiness = 20
                     if rsi_long_ok or (rsi_short_ok and not is_btc): readiness += 10
-                    if stoch_cross_bull or (stoch_cross_bear and not is_btc): readiness += 5
-                
-                if readiness >= 85:
-                    action_status = 'Signal Trigger Matang'
-                elif readiness >= 60:
-                    action_status = 'Setup Berkembang (Menunggu Trigger)'
-                elif readiness >= 40:
-                    action_status = 'RSI Masuk Zona Filter'
-                else:
                     action_status = 'Pasar Sideways / Standby'
                 
+                pair_sent = sent_data.get('pairs', {}).get(p, {})
+                pair_deriv = deriv_data.get('pairs', {}).get(p, {})
                 radar.append({
                     'pair': p,
                     'mark_price': round(c, 4 if c < 1 else 2),
@@ -235,7 +330,20 @@ def get_live_market_radar():
                     'rsi_thresh': f'{int(rsi_min_long)}-63 (Long) / {int(rsi_min_short)}-67 (Short)' if not is_btc else f'{int(rsi_min_long)}-63 (Long Only)',
                     'gate_4h': gate_text,
                     'action': action_status,
-                    'conviction': readiness
+                    'conviction': readiness,
+                    'sentiment_score': pair_sent.get('sentiment_score', 0.0),
+                    'sentiment_regime': pair_sent.get('sentiment_regime', 'NEUTRAL'),
+                    'blackout_active': pair_sent.get('blackout_active', False),
+                    'blackout_reason': pair_sent.get('blackout_reason'),
+                    'funding_rate_pct': pair_deriv.get('funding_rate_8h_pct', 0.0),
+                    'funding_rate_apr': pair_deriv.get('funding_rate_apr_pct', 0.0),
+                    'open_interest_usd': pair_deriv.get('open_interest_usd', 0.0),
+                    'oi_delta_1h_pct': pair_deriv.get('oi_delta_1h_pct', 0.0),
+                    'basis_pct': pair_deriv.get('basis_pct', 0.0),
+                    'l1_imbalance_pct': pair_deriv.get('l1_imbalance_pct', 0.0),
+                    'derivatives_regime': pair_deriv.get('derivatives_regime', 'EQUILIBRIUM'),
+                    'squeeze_signal': pair_deriv.get('squeeze_signal', 'NONE'),
+                    'leverage_risk': pair_deriv.get('leverage_risk', 'LOW')
                 })
 
                 # --- AI Strategic Supervisor: Prospective Limit Order Candidate Analysis ---
@@ -275,7 +383,47 @@ def get_live_market_radar():
                     if is_upper_range and coiling_near_res and rising_floor and ema_hold and rsi_acc and squeeze_ok:
                         is_coiling = True
 
-                if is_coiling:
+                # Evaluate Multi-Gate News Catalyst Confluence
+                hl_sc = float(pair_sent.get('latest_headline_score', 0.0) or 0.0)
+                sent_sc = float(pair_sent.get('sentiment_score', 0.0) or 0.0)
+                sent_reg = pair_sent.get('sentiment_regime', 'NEUTRAL')
+                is_blackout = bool(pair_sent.get('blackout_active', False))
+                sent_pass = (not is_blackout) and (hl_sc >= 0.50 or (sent_sc >= 0.20 and sent_reg == 'BULLISH_TAILWIND'))
+                
+                funding_val = float(pair_deriv.get('funding_rate_8h_pct', 0.0) or 0.0)
+                deriv_pass = (
+                    funding_val <= 0.025 and 
+                    pair_deriv.get('squeeze_signal') != 'LONG_FLUSH_WARNING' and 
+                    not (pair_deriv.get('derivatives_regime') == 'LONG_OVERHEATED' and pair_deriv.get('leverage_risk') == 'HIGH')
+                )
+                
+                df1['atr'] = ta.ATR(df1, timeperiod=14)
+                atr_last = float(df1['atr'].iloc[-2]) if not pd.isna(df1['atr'].iloc[-2]) else 0.0
+                vol_mean_20 = float(df1['volume'].rolling(20).mean().iloc[-2]) if len(df1) >= 22 else 1.0
+                vol_last = float(df1['volume'].iloc[-2])
+                c_prev = float(df1['close'].iloc[-2])
+                o_prev = float(df1['open'].iloc[-2])
+                h_prev = float(df1['high'].iloc[-2])
+                l_prev = float(df1['low'].iloc[-2])
+                
+                vol_shock = (vol_last >= 2.2 * vol_mean_20) if vol_mean_20 > 0 else False
+                thrust_ok = ((c_prev - o_prev) >= 1.4 * atr_last) if atr_last > 0 else False
+                rsi_corridor = (50.0 <= r <= 65.0)
+                headroom_ok = ((resistance_ceil - c_prev) / c_prev >= 0.015) if c_prev > 0 else False
+                vol_comp = is_squeeze or (adx4 < 26.0)
+                
+                is_news_catalyst = bool(sent_pass and deriv_pass and macro_bull and rsi_corridor and headroom_ok and vol_shock and thrust_ok and vol_comp)
+
+                if is_news_catalyst:
+                    pullback_bid = min(round(c_prev - 0.20 * (h_prev - l_prev), dec), round(c * 0.9985, dec))
+                    cand_limit_price = pullback_bid
+                    risk = round(cand_limit_price * 0.015, dec)
+                    stop_loss = round(cand_limit_price - risk, dec)
+                    target_tp = round(cand_limit_price + 2.0 * risk, dec)
+                    rr_ratio = 2.0
+                    dist_usd = c - cand_limit_price
+                    dist_pct = (dist_usd / c) * 100.0 if c > 0 else 0.0
+                elif is_coiling:
                     cand_limit_price = min(round(ema9, dec), round(c * 0.9985, dec))
                     cand_limit_price = max(cand_limit_price, round(local_floor_12, dec))
                     stop_loss = round(local_floor_12 * 0.992, dec)
@@ -288,27 +436,32 @@ def get_live_market_radar():
                     target_tp = round(support_floor + 0.60 * (resistance_ceil - support_floor), dec)
                     stop_loss = round(support_floor * 0.992, dec)
 
-                risk = cand_limit_price - stop_loss
-                if risk <= 0:
-                    risk = round(cand_limit_price * 0.008, dec)
-                    stop_loss = round(cand_limit_price - risk, dec)
+                if not is_news_catalyst:
+                    risk = cand_limit_price - stop_loss
+                    if risk <= 0:
+                        risk = round(cand_limit_price * 0.008, dec)
+                        stop_loss = round(cand_limit_price - risk, dec)
 
-                min_target_tp = round(cand_limit_price + 1.80 * risk, dec)
-                if target_tp < min_target_tp:
-                    target_tp = min_target_tp
+                    min_target_tp = round(cand_limit_price + 1.80 * risk, dec)
+                    if target_tp < min_target_tp:
+                        target_tp = min_target_tp
 
-                reward = target_tp - cand_limit_price
-                rr_ratio = round(reward / risk, 2) if risk > 0 else 1.80
+                    reward = target_tp - cand_limit_price
+                    rr_ratio = round(reward / risk, 2) if risk > 0 else 1.80
                 
                 lev = 7.0 if is_btc else 3.0
                 tp_pct_roe = round(((target_tp - cand_limit_price) / cand_limit_price) * 100.0 * lev, 2)
                 sl_pct_roe = round(((cand_limit_price - stop_loss) / cand_limit_price) * 100.0 * lev, 2)
                 
-                cand_stake = round(cfg_info['initial_wallet'] / 3.0, 2)
+                cand_stake = round((cfg_info['initial_wallet'] / 3.0) * (0.60 if is_news_catalyst else 1.0), 2)
                 tp_usd_projected = round(cand_stake * (tp_pct_roe / 100.0), 2)
                 sl_usd_projected = round(cand_stake * (sl_pct_roe / 100.0), 2)
 
-                if is_coiling:
+                if is_news_catalyst:
+                    ai_status = f"[NEWS CATALYST] Katalis Berita Terkonfirmasi ({pair_sent.get('latest_headline_source', 'News')}) - Limit Bid Pullback ${cand_limit_price:,.{dec}f}"
+                    ai_stage = "NEWS_CATALYST_OPPORTUNITY"
+                    ai_readiness = 98
+                elif is_coiling:
                     ai_status = f"[PRE-BREAKOUT] Akumulasi Ascending Floor (${local_floor_12:,.{dec}f}) - Siaga Limit Bid ${cand_limit_price:,.{dec}f}"
                     ai_stage = "PRE_BREAKOUT_COILING"
                     ai_readiness = 95
@@ -390,7 +543,24 @@ def get_live_market_radar():
                     'bull_conviction': bull_conv,
                     'cluster': cluster_name,
                     'cluster_key': cluster_key,
-                    'leverage': lev
+                    'leverage': lev,
+                    'sentiment_score': pair_sent.get('sentiment_score', 0.0),
+                    'sentiment_regime': pair_sent.get('sentiment_regime', 'NEUTRAL'),
+                    'blackout_active': pair_sent.get('blackout_active', False),
+                    'blackout_reason': pair_sent.get('blackout_reason'),
+                    'funding_rate_pct': pair_deriv.get('funding_rate_8h_pct', 0.0),
+                    'funding_rate_apr': pair_deriv.get('funding_rate_apr_pct', 0.0),
+                    'open_interest_usd': pair_deriv.get('open_interest_usd', 0.0),
+                    'oi_delta_1h_pct': pair_deriv.get('oi_delta_1h_pct', 0.0),
+                    'basis_pct': pair_deriv.get('basis_pct', 0.0),
+                    'l1_imbalance_pct': pair_deriv.get('l1_imbalance_pct', 0.0),
+                    'derivatives_regime': pair_deriv.get('derivatives_regime', 'EQUILIBRIUM'),
+                    'squeeze_signal': pair_deriv.get('squeeze_signal', 'NONE'),
+                    'leverage_risk': pair_deriv.get('leverage_risk', 'LOW'),
+                    'is_news_catalyst': is_news_catalyst,
+                    'news_headline': pair_sent.get('latest_headline', ''),
+                    'news_headline_score': hl_sc,
+                    'news_stake_scale': 0.60 if is_news_catalyst else 1.0
                 })
             except Exception as pe:
                 pass
@@ -917,10 +1087,16 @@ def get_live_db_data():
         }
 
 class DashboardHandler(BaseHTTPRequestHandler):
+    def handle(self):
+        try:
+            super().handle()
+        except (ConnectionResetError, ConnectionAbortedError, BrokenPipeError):
+            pass
+
     def do_GET(self):
         parsed = urllib.parse.urlparse(self.path)
-        if parsed.path == '/' or parsed.path == '/index.html':
-            html_file = Path('user_data/dashboard/index.html')
+        if parsed.path in ['/', '/index.html', '/benchmark_explorer.html']:
+            html_file = Path('user_data/dashboard/benchmark_explorer.html') if parsed.path == '/benchmark_explorer.html' and Path('user_data/dashboard/benchmark_explorer.html').exists() else Path('user_data/dashboard/index.html')
             if html_file.exists():
                 with open(html_file, 'rb') as f:
                     content = f.read()
@@ -948,11 +1124,11 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 'daemon_pid': freq_pid or 'ACTIVE',
                 'current_date': session_sum.get('current_date', '2026-09-10'),
                 'current_month': session_sum.get('current_month', 'September 2026'),
-                'strategy': 'ApexDualAlpha_Omni_V11_OptionB',
+                'strategy': get_freqtrade_strategy(),
                 'config': {
                     'exchange': 'Bybit Perpetual Futures',
                     'margin_mode': 'Isolated',
-                    'leverage': '3.0x (Altcoins & PAXG) / 7.0x (BTC Dynamic)',
+                    'leverage': '3.0x (Altcoins, PAXG & HYPE) / 7.0x (BTC Dynamic)',
                     'whitelist': cfg_info['whitelist'],
                     'max_open_trades': cfg_info['max_open_trades'],
                     'initial_wallet': init_bal,
@@ -1004,7 +1180,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
                         {'item': 'Automated Daily Loss Kill Switch (-2.0%)', 'status': 'ARMED & ACTIVE', 'ok': True}
                     ]
                 },
-                'benchmark': benchmark_data
+                'benchmark': benchmark_data,
+                'news_sentiment': get_sentiment_data(),
+                'derivatives_market': get_derivatives_data()
             }
             
             body = json.dumps(payload).encode('utf-8')
@@ -1162,8 +1340,15 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
 def run_server():
     print(f'Starting Freqtrade Multi-Mode Dashboard Bridge API on port {PORT}...')
-    server = ThreadingHTTPServer(('127.0.0.1', PORT), DashboardHandler)
-    server.serve_forever()
+    while True:
+        try:
+            server = ThreadingHTTPServer(('127.0.0.1', PORT), DashboardHandler)
+            server.serve_forever()
+        except (KeyboardInterrupt, SystemExit):
+            break
+        except Exception as e:
+            print(f'Server restarted after exception: {e}')
+            time.sleep(1)
 
 if __name__ == '__main__':
     run_server()

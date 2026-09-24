@@ -1,0 +1,31 @@
+{
+  "summary_4slots": {
+    "total_trades": 863,
+    "trades_per_day": 0.89,
+    "winrate_pct": 73.12,
+    "total_wins": 631,
+    "total_losses": 232,
+    "profit_factor": 1.55,
+    "initial_balance": 1000.0,
+    "final_balance": 25096.84,
+    "total_profit_abs": 24096.84,
+    "total_profit_pct": 2409.68,
+    "max_drawdown_pct": 24.92
+  },
+  "summary_no_compounding": {
+    "total_trades": 863,
+    "trades_per_day": 0.89,
+    "winrate_pct": 73.12,
+    "final_balance": 4555.18,
+    "total_profit_pct": 355.52,
+    "max_drawdown_pct": 12.97
+  },
+  "summary_3slots": {
+    "total_trades": 823,
+    "trades_per_day": 0.84,
+    "winrate_pct": 73.75,
+    "final_balance": 81843.36,
+    "total_profit_pct": 8084.34,
+    "max_drawdown_pct": 25.9
+  }
+}
