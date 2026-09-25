@@ -11,12 +11,156 @@ import time
 import json
 import re
 import logging
+import calendar
+import email.utils
 import urllib.request
-from datetime import datetime, timezone
-from typing import Dict, List, Any, Optional
+from datetime import datetime, timezone, timedelta
+from typing import Dict, List, Any, Optional, Tuple, Union
+
+try:
+    import dateutil.parser
+    HAS_DATEUTIL = True
+except ImportError:
+    HAS_DATEUTIL = False
 
 import feedparser
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+
+WIB_TZ = timezone(timedelta(hours=7))
+
+
+def format_wib_timestamp(dt_utc: datetime) -> Tuple[str, str]:
+    """
+    Standardizes UTC datetime into:
+    - published_at: ISO-8601 UTC string (e.g. '2026-09-25T13:00:00+00:00')
+    - published_wib: Formatted string in local WIB:
+      - 'HH:MM WIB' if published on current day (WIB)
+      - 'DD/MM HH:MM' if published earlier this year
+      - 'DD/MM/YYYY HH:MM' if published in previous years
+    """
+    dt_wib = dt_utc.astimezone(WIB_TZ)
+    now_wib = datetime.now(timezone.utc).astimezone(WIB_TZ)
+
+    if dt_utc.microsecond == 0:
+        iso_str = dt_utc.strftime("%Y-%m-%dT%H:%M:%S+00:00")
+    else:
+        iso_str = dt_utc.isoformat()
+        if iso_str.endswith("Z"):
+            iso_str = iso_str[:-1] + "+00:00"
+
+    if dt_wib.date() == now_wib.date():
+        wib_str = dt_wib.strftime("%H:%M WIB")
+    elif dt_wib.year == now_wib.year:
+        wib_str = dt_wib.strftime("%d/%m %H:%M")
+    else:
+        wib_str = dt_wib.strftime("%d/%m/%Y %H:%M")
+
+    return iso_str, wib_str
+
+
+def parse_feed_timestamp(entry: Any = None, fallback_raw: Optional[Union[str, int, float]] = None) -> Tuple[str, str]:
+    """
+    Parses an RSS entry, FeedParserDict, dict, or raw date string/epoch into:
+    - published_at: ISO-8601 UTC string (e.g. '2026-09-25T13:00:00+00:00')
+    - published_wib: Local WIB string (e.g. '20:00 WIB' or 'DD/MM HH:MM')
+    """
+    now_utc = datetime.now(timezone.utc)
+
+    # 1. Try struct_time from entry (supports FeedParserDict, dict, or object)
+    st = None
+    if entry is not None:
+        if isinstance(entry, dict):
+            st = entry.get("published_parsed") or entry.get("updated_parsed")
+        else:
+            st = getattr(entry, "published_parsed", None) or getattr(entry, "updated_parsed", None)
+
+    if st:
+        try:
+            ts = calendar.timegm(st)
+            dt_utc = datetime.fromtimestamp(ts, tz=timezone.utc)
+            return format_wib_timestamp(dt_utc)
+        except Exception:
+            pass
+
+    # 2. Extract raw date string or numeric timestamp from entry or fallback
+    raw = None
+    if entry is not None:
+        if isinstance(entry, dict):
+            raw = (
+                entry.get("published")
+                or entry.get("updated")
+                or entry.get("pubDate")
+                or entry.get("created")
+                or entry.get("date")
+                or entry.get("published_raw")
+            )
+        else:
+            raw = (
+                getattr(entry, "published", None)
+                or getattr(entry, "updated", None)
+                or getattr(entry, "pubDate", None)
+                or getattr(entry, "created", None)
+                or getattr(entry, "date", None)
+                or getattr(entry, "published_raw", None)
+            )
+
+    if not raw and fallback_raw is not None:
+        raw = fallback_raw
+
+    if raw is not None:
+        # Numeric epoch timestamp (seconds or milliseconds)
+        if isinstance(raw, (int, float)):
+            try:
+                ts = raw / 1000.0 if raw > 1e11 else float(raw)
+                dt_utc = datetime.fromtimestamp(ts, tz=timezone.utc)
+                return format_wib_timestamp(dt_utc)
+            except Exception:
+                pass
+        elif isinstance(raw, str):
+            clean_raw = raw.strip()
+            # If string is purely numeric digits (epoch seconds or millis)
+            if clean_raw.replace(".", "", 1).isdigit() and len(clean_raw) >= 9:
+                try:
+                    val = float(clean_raw)
+                    ts = val / 1000.0 if val > 1e11 else val
+                    dt_utc = datetime.fromtimestamp(ts, tz=timezone.utc)
+                    return format_wib_timestamp(dt_utc)
+                except Exception:
+                    pass
+
+            if HAS_DATEUTIL:
+                try:
+                    dt = dateutil.parser.parse(clean_raw)
+                    if dt.tzinfo is None:
+                        dt_utc = dt.replace(tzinfo=timezone.utc)
+                    else:
+                        dt_utc = dt.astimezone(timezone.utc)
+                    return format_wib_timestamp(dt_utc)
+                except Exception:
+                    pass
+
+            try:
+                dt = email.utils.parsedate_to_datetime(clean_raw)
+                if dt.tzinfo is None:
+                    dt_utc = dt.replace(tzinfo=timezone.utc)
+                else:
+                    dt_utc = dt.astimezone(timezone.utc)
+                return format_wib_timestamp(dt_utc)
+            except Exception:
+                pass
+
+            try:
+                dt = datetime.fromisoformat(clean_raw.replace("Z", "+00:00"))
+                if dt.tzinfo is None:
+                    dt_utc = dt.replace(tzinfo=timezone.utc)
+                else:
+                    dt_utc = dt.astimezone(timezone.utc)
+                return format_wib_timestamp(dt_utc)
+            except Exception:
+                pass
+
+    # 3. Fallback to current UTC time
+    return format_wib_timestamp(now_utc)
 
 try:
     from scrapling import Fetcher
@@ -191,6 +335,15 @@ class NewsSentimentDaemon:
                     for item in data.get("recent_feed", []):
                         item_id = item.get("link") or item.get("title")
                         if item_id:
+                            # Discard legacy poisoned entries that have no true publication timestamp
+                            if not item.get("published_raw") and item.get("published_at") == item.get("fetched_at"):
+                                continue
+
+                            # Backfill publication timestamps if missing from older daemon versions
+                            if "published_at" not in item:
+                                pub_at, pub_wib = parse_feed_timestamp(None, fallback_raw=item.get("published_raw") or item.get("fetched_at"))
+                                item["published_at"] = pub_at
+                                item["published_wib"] = pub_wib
                             self.article_cache[item_id] = item
                 logger.info(f"Loaded {len(self.article_cache)} cached articles from {self.state_file}")
             except Exception as e:
@@ -251,14 +404,23 @@ class NewsSentimentDaemon:
 
                     summary = getattr(entry, "summary", "") or getattr(entry, "description", "")
                     clean_summary = re.sub(r"<[^>]+>", "", summary).strip()
-                    link = getattr(entry, "link", "")
-                    pub_time = getattr(entry, "published", "") or getattr(entry, "updated", "")
+                    link = getattr(entry, "link", "") or getattr(entry, "id", "") or getattr(entry, "guid", "")
+                    pub_time = (
+                        getattr(entry, "published", "")
+                        or getattr(entry, "updated", "")
+                        or getattr(entry, "pubDate", "")
+                        or getattr(entry, "created", "")
+                        or getattr(entry, "date", "")
+                    )
+                    pub_iso, pub_wib = parse_feed_timestamp(entry, fallback_raw=pub_time)
 
                     articles.append({
                         "source": source,
                         "title": title,
                         "summary": clean_summary,
                         "link": link,
+                        "published_at": pub_iso,
+                        "published_wib": pub_wib,
                         "published_raw": pub_time,
                         "fetched_at": datetime.now(timezone.utc).isoformat()
                     })
@@ -344,11 +506,20 @@ class NewsSentimentDaemon:
         else:
             regime = "NEUTRAL"
 
+        # Resolve publication timestamp accurately
+        pub_at = article.get("published_at")
+        pub_wib = article.get("published_wib")
+        if not pub_at:
+            pub_at, pub_wib = parse_feed_timestamp(None, fallback_raw=article.get("published_raw") or article.get("fetched_at"))
+
         return {
             "title": article["title"],
             "source": article["source"],
             "link": article["link"],
-            "fetched_at": article["fetched_at"],
+            "published_at": pub_at,
+            "published_wib": pub_wib,
+            "published_raw": article.get("published_raw", ""),
+            "fetched_at": article.get("fetched_at", datetime.now(timezone.utc).isoformat()),
             "pairs": pairs,
             "compound_score": compound,
             "regime": regime,
@@ -362,8 +533,19 @@ class NewsSentimentDaemon:
         now = datetime.now(timezone.utc)
         all_articles = list(self.article_cache.values())
 
-        # Sort by fetched_at descending
-        all_articles.sort(key=lambda x: x.get("fetched_at", ""), reverse=True)
+        # Sort by true publication timestamp descending
+        def get_article_sort_ts(item: Dict[str, Any]) -> float:
+            ts_str = item.get("published_at") or item.get("fetched_at")
+            if not ts_str:
+                return 0.0
+            try:
+                if HAS_DATEUTIL:
+                    return dateutil.parser.parse(ts_str).timestamp()
+                return datetime.fromisoformat(ts_str.replace("Z", "+00:00")).timestamp()
+            except Exception:
+                return 0.0
+
+        all_articles.sort(key=get_article_sort_ts, reverse=True)
 
         # Keep cache capped at 300
         if len(self.article_cache) > 300:
@@ -372,7 +554,7 @@ class NewsSentimentDaemon:
             all_articles = kept
 
         # Global macro sentiment
-        scores = [item["compound_score"] for item in all_articles[:100]]
+        scores = [item.get("compound_score", 0.0) for item in all_articles[:100]]
         macro_score = round(sum(scores) / len(scores), 4) if scores else 0.0
 
         if macro_score >= 0.12:
@@ -472,6 +654,15 @@ class NewsSentimentDaemon:
                     evaluated = self.analyze_article(raw)
                     self.article_cache[item_key] = evaluated
                     new_count += 1
+                else:
+                    # Update timestamps if existing cached item was missing true publication date
+                    cached = self.article_cache[item_key]
+                    if not cached.get("published_at") or cached.get("published_at") == cached.get("fetched_at"):
+                        if raw.get("published_at"):
+                            cached["published_at"] = raw["published_at"]
+                            cached["published_wib"] = raw["published_wib"]
+                            if raw.get("published_raw"):
+                                cached["published_raw"] = raw["published_raw"]
 
         logger.info(f"Scan complete. New articles processed: {new_count}. Total in memory: {len(self.article_cache)}")
         state = self.aggregate_sentiment()

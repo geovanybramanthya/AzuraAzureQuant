@@ -1290,7 +1290,7 @@
     function updateClock() {
       const now = new Date();
       const wibOptions = { timeZone: 'Asia/Jakarta', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false };
-      const timeStr = new Intl.DateTimeFormat('id-ID', wibOptions).format(now);
+      const timeStr = new Intl.DateTimeFormat('id-ID', wibOptions).format(now).replace(/\./g, ':');
       const clockEl = document.getElementById('wib-clock');
       if (clockEl) clockEl.textContent = timeStr;
       
@@ -2293,7 +2293,14 @@
       if (lastUpEl && sentimentData.last_updated) {
         try {
           const dt = new Date(sentimentData.last_updated);
-          lastUpEl.textContent = `Diperbarui: ${dt.toLocaleTimeString('id-ID')} WIB`;
+          const wibTime = new Intl.DateTimeFormat('id-ID', {
+            timeZone: 'Asia/Jakarta',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+            hour12: false
+          }).format(dt).replace(/\./g, ':');
+          lastUpEl.textContent = `Diperbarui: ${wibTime} WIB`;
         } catch (e) {
           lastUpEl.textContent = `Diperbarui: ${sentimentData.last_updated.slice(11, 19)}`;
         }
@@ -2359,6 +2366,32 @@
       // 3. Live News Feed List
       const feedContainer = document.getElementById('news-feed-container');
       if (feedContainer && sentimentData.recent_feed) {
+        const wibTimeFormatter = new Intl.DateTimeFormat('id-ID', {
+          timeZone: 'Asia/Jakarta',
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: false
+        });
+        const wibDateFormatter = new Intl.DateTimeFormat('id-ID', {
+          timeZone: 'Asia/Jakarta',
+          day: '2-digit',
+          month: '2-digit'
+        });
+        const wibYearFormatter = new Intl.DateTimeFormat('id-ID', {
+          timeZone: 'Asia/Jakarta',
+          year: 'numeric'
+        });
+        const wibFullFormatter = new Intl.DateTimeFormat('id-ID', {
+          timeZone: 'Asia/Jakarta',
+          year: 'numeric',
+          month: 'short',
+          day: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+          hour12: false
+        });
+
         let fHtml = '';
         sentimentData.recent_feed.slice(0, 15).forEach(item => {
           const comp = Number(item.compound_score || 0);
@@ -2368,7 +2401,43 @@
           const source = item.source || 'News';
           const title = item.title || '';
           const link = item.link || '#';
-          const fetchedAt = item.fetched_at ? item.fetched_at.slice(11, 16) : '';
+
+          // Format publication timestamp in local WIB (Asia/Jakarta)
+          let timeDisplay = '';
+          let fullDateTooltip = '';
+          const pubTimestamp = item.published_at || item.published_raw || item.fetched_at;
+
+          if (pubTimestamp) {
+            try {
+              const dt = new Date(pubTimestamp);
+              if (!isNaN(dt.getTime())) {
+                const now = new Date();
+                const artDayKey = dt.toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' });
+                const nowDayKey = now.toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' });
+
+                const timeOnly = wibTimeFormatter.format(dt).replace(/\./g, ':');
+                const artDateStr = wibDateFormatter.format(dt);
+                const artYearStr = wibYearFormatter.format(dt);
+                const nowYearStr = wibYearFormatter.format(now);
+
+                if (artDayKey === nowDayKey) {
+                  timeDisplay = `${timeOnly} WIB`;
+                } else if (artYearStr === nowYearStr) {
+                  timeDisplay = `${artDateStr} ${timeOnly}`;
+                } else {
+                  timeDisplay = `${artDateStr}/${artYearStr} ${timeOnly}`;
+                }
+                fullDateTooltip = `Dipublikasikan: ${wibFullFormatter.format(dt).replace(/\./g, ':')} WIB`;
+              }
+            } catch (err) {
+              console.warn('Error formatting news date:', err);
+            }
+          }
+
+          if (!timeDisplay) {
+            timeDisplay = item.published_wib || (item.fetched_at ? item.fetched_at.slice(11, 16) + ' WIB' : '');
+            fullDateTooltip = timeDisplay;
+          }
 
           let pillClass = 'bg-slate-800 text-slate-300 border-slate-700';
           if (isBlackout) {
@@ -2387,12 +2456,12 @@
           fHtml += `
             <div class="p-2.5 rounded-xl bg-slate-900/80 border border-slate-800/80 hover:border-slate-700 transition flex flex-col gap-1.5">
               <div class="flex items-center justify-between text-[10px]">
-                <div class="flex items-center gap-1.5">
+                <div class="flex items-center gap-1.5 flex-wrap">
                   <span class="px-1.5 py-0.5 rounded bg-[#0d111a] border border-slate-800 text-slate-300 font-bold">${source}</span>
                   ${pairTags}
                 </div>
-                <div class="flex items-center gap-1.5 mono">
-                  <span class="text-slate-500">${fetchedAt}</span>
+                <div class="flex items-center gap-1.5 mono shrink-0">
+                  <span class="text-slate-400 font-medium text-[10px]" title="${fullDateTooltip}">${timeDisplay}</span>
                   <span class="px-1.5 py-0.2 rounded text-[9px] font-extrabold border ${pillClass}">${comp >= 0 ? '+' : ''}${comp.toFixed(2)} ${tag}</span>
                 </div>
               </div>
