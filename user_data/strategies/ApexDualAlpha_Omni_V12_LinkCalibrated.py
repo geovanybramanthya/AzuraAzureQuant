@@ -79,6 +79,8 @@ class ApexDualAlpha_Omni_V12_LinkCalibrated(IStrategy):
     def leverage(self, pair: str, current_time: datetime, current_rate: float,
                  proposed_leverage: float, max_leverage: float, entry_tag: str,
                  side: str, **kwargs) -> float:
+        if entry_tag and "prebreakout_expansion" in entry_tag:
+            return 3.0
         if "BTC" in pair:
             return 7.0
         return 3.0
@@ -88,14 +90,17 @@ class ApexDualAlpha_Omni_V12_LinkCalibrated(IStrategy):
                             leverage: float, entry_tag: str | None, side: str,
                             **kwargs) -> float:
         """
-        Directional Co-Risk Throttling (Config 08) & News Catalyst Stake Scaling:
+        Directional Co-Risk Throttling (Config 08), News Catalyst & Expansion Engine Stake Scaling:
         - News Catalyst trades receive 0.60x stake scaling.
+        - Pre-Breakout Range Expansion trades receive 0.50x stake scaling.
         - If 2 or more open positions in the same direction (e.g. 2 Longs),
           scale the stake for the 3rd same-side position by 0.70x to prevent correlated liquidation cascades.
         """
         stake = proposed_stake
         if entry_tag and "news_catalyst" in entry_tag:
             stake = stake * 0.60
+        elif entry_tag and "prebreakout_expansion" in entry_tag:
+            stake = stake * 0.50
 
         try:
             open_trades = Trade.get_open_trades() or []
@@ -119,7 +124,7 @@ class ApexDualAlpha_Omni_V12_LinkCalibrated(IStrategy):
         spot_profit = current_profit / lev if lev > 0 else current_profit
         entry_tag = getattr(trade, "enter_tag", "") or ""
 
-        # 0. News Catalyst Position Lifecycle & Invalidation Gate
+        # 0A. News Catalyst Position Lifecycle & Invalidation Gate
         if entry_tag and "news_catalyst" in entry_tag:
             # Runner target hit (+4.5% profit)
             if current_profit >= 0.045:
@@ -130,6 +135,18 @@ class ApexDualAlpha_Omni_V12_LinkCalibrated(IStrategy):
             # Stagnation cutoff at 12 hours if PnL spot < +0.50%
             if trade_duration >= 12.0 and spot_profit < 0.0050:
                 return "news_12h_cutoff"
+
+        # 0B. Pre-Breakout Range Expansion Engine Position Lifecycle & Invalidation Gate
+        if entry_tag and "prebreakout_expansion" in entry_tag:
+            # expansion_tp2_runner (profit >= 3.75% spot = 2.5R)
+            if spot_profit >= 0.0375:
+                return "expansion_tp2_runner"
+            # expansion_rapid_invalidation_3h (duration >= 3.0h, current_profit <= -0.005 spot)
+            if trade_duration >= 3.0 and spot_profit <= -0.005:
+                return "expansion_rapid_invalidation_3h"
+            # expansion_24h_timeout (duration >= 24.0h)
+            if trade_duration >= 24.0:
+                return "expansion_24h_timeout"
 
         # 1. Fast profit taking for Shorts on sudden explosive dumps (> +4.5% profit)
         if trade.is_short and current_profit > 0.045:

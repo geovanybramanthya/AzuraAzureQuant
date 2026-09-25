@@ -57,7 +57,7 @@ def get_config_info():
         'ADA/USDT:USDT', 'DOGE/USDT:USDT', 'LINK/USDT:USDT',
         'PAXG/USDT:USDT', 'HYPE/USDT:USDT'
     ]
-    max_open_trades = 3
+    max_open_trades = 4
     if CONFIG_PATH.exists():
         try:
             with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
@@ -414,7 +414,48 @@ def get_live_market_radar():
                 
                 is_news_catalyst = bool(sent_pass and deriv_pass and macro_bull and rsi_corridor and headroom_ok and vol_shock and thrust_ok and vol_comp)
 
-                if is_news_catalyst:
+                # Pre-Breakout Range Expansion Engine (4-Slot Architecture)
+                bb_w_val = float(df1['bb_width'].iloc[-2]) if 'bb_width' in df1 else 0.0
+                bb_q25_val = float(df1['bb_width'].rolling(50, min_periods=20).quantile(0.25).iloc[-2]) if len(df1) >= 22 else 0.0
+                vol_comp_expansion = is_squeeze or (bb_w_val <= bb_q25_val if bb_q25_val > 0 else False)
+
+                asset_sym = p.split('/')[0].upper()
+                span_map = {
+                    'BTC': 0.050, 'ETH': 0.055, 'SOL': 0.065, 'ADA': 0.070,
+                    'DOGE': 0.070, 'LINK': 0.065, 'PAXG': 0.035, 'HYPE': 0.085
+                }
+                max_asset_span = span_map.get(asset_sym, 0.065)
+                range_span_val = (resistance_ceil - support_floor) / support_floor if support_floor > 0 else 0.0
+                span_ok = (range_span_val <= max_asset_span)
+
+                rising_floor_exp = (local_floor_12 >= local_floor_24 * 0.998) if (local_floor_12 and local_floor_24) else True
+                falling_ceil_exp = (local_ceil_12 <= local_ceil_24 * 1.002) if (local_ceil_12 and local_ceil_24) else True
+                headroom_long_exp = ((resistance_ceil - c_prev) / c_prev >= 0.015) if c_prev > 0 else False
+                headroom_short_exp = ((c_prev - support_floor) / c_prev >= 0.015) if c_prev > 0 else False
+                rsi_long_exp = (48.0 <= r <= 68.0)
+                rsi_short_exp = (32.0 <= r <= 52.0)
+                adx_ok_exp = (adx4 >= 20.0)
+
+                is_exp_long = bool(not is_blackout and macro_bull and headroom_long_exp and rising_floor_exp and vol_shock and rsi_long_exp and adx_ok_exp and vol_comp_expansion and span_ok)
+                is_exp_short = bool(not is_blackout and macro_bear and headroom_short_exp and falling_ceil_exp and vol_shock and rsi_short_exp and adx_ok_exp and vol_comp_expansion and span_ok)
+                is_prebreakout_expansion = is_exp_long or is_exp_short
+                exp_side = 'long' if is_exp_long else 'short'
+
+                if is_prebreakout_expansion:
+                    if exp_side == 'long':
+                        cand_limit_price = round(c_prev * (1.0 - 0.0018), dec)
+                        risk = round(cand_limit_price * 0.015, dec)
+                        stop_loss = round(cand_limit_price - risk, dec)
+                        target_tp = round(cand_limit_price + 2.5 * risk, dec)
+                    else:
+                        cand_limit_price = round(c_prev * (1.0 + 0.0018), dec)
+                        risk = round(cand_limit_price * 0.015, dec)
+                        stop_loss = round(cand_limit_price + risk, dec)
+                        target_tp = round(cand_limit_price - 2.5 * risk, dec)
+                    rr_ratio = 2.5
+                    dist_usd = abs(c - cand_limit_price)
+                    dist_pct = (dist_usd / c) * 100.0 if c > 0 else 0.0
+                elif is_news_catalyst:
                     pullback_bid = min(round(c_prev - 0.20 * (h_prev - l_prev), dec), round(c * 0.9985, dec))
                     cand_limit_price = pullback_bid
                     risk = round(cand_limit_price * 0.015, dec)
@@ -436,7 +477,7 @@ def get_live_market_radar():
                     target_tp = round(support_floor + 0.60 * (resistance_ceil - support_floor), dec)
                     stop_loss = round(support_floor * 0.992, dec)
 
-                if not is_news_catalyst:
+                if not is_news_catalyst and not is_prebreakout_expansion:
                     risk = cand_limit_price - stop_loss
                     if risk <= 0:
                         risk = round(cand_limit_price * 0.008, dec)
@@ -449,15 +490,22 @@ def get_live_market_radar():
                     reward = target_tp - cand_limit_price
                     rr_ratio = round(reward / risk, 2) if risk > 0 else 1.80
                 
-                lev = 7.0 if is_btc else 3.0
-                tp_pct_roe = round(((target_tp - cand_limit_price) / cand_limit_price) * 100.0 * lev, 2)
-                sl_pct_roe = round(((cand_limit_price - stop_loss) / cand_limit_price) * 100.0 * lev, 2)
+                # Leverage calibration: BTC 3.0x for expansion engine
+                lev = 3.0 if is_prebreakout_expansion else (7.0 if is_btc else 3.0)
+                tp_pct_roe = round(((abs(target_tp - cand_limit_price)) / cand_limit_price) * 100.0 * lev, 2)
+                sl_pct_roe = round(((abs(cand_limit_price - stop_loss)) / cand_limit_price) * 100.0 * lev, 2)
                 
-                cand_stake = round((cfg_info['initial_wallet'] / 3.0) * (0.60 if is_news_catalyst else 1.0), 2)
+                # 4-Slot stake scale: 0.50x for expansion, 0.60x for news catalyst
+                cand_stake_mult = 0.50 if is_prebreakout_expansion else (0.60 if is_news_catalyst else 1.0)
+                cand_stake = round((cfg_info['initial_wallet'] / 3.0) * cand_stake_mult, 2)
                 tp_usd_projected = round(cand_stake * (tp_pct_roe / 100.0), 2)
                 sl_usd_projected = round(cand_stake * (sl_pct_roe / 100.0), 2)
 
-                if is_news_catalyst:
+                if is_prebreakout_expansion:
+                    ai_status = f"[PRE-BREAKOUT EXPANSION] Ignition {exp_side.upper()} Terdeteksi (Vol={vol_last/vol_mean_20:.1f}x) - Limit Bid ${cand_limit_price:,.{dec}f}"
+                    ai_stage = "PRE_BREAKOUT_EXPANSION"
+                    ai_readiness = 99
+                elif is_news_catalyst:
                     ai_status = f"[NEWS CATALYST] Katalis Berita Terkonfirmasi ({pair_sent.get('latest_headline_source', 'News')}) - Limit Bid Pullback ${cand_limit_price:,.{dec}f}"
                     ai_stage = "NEWS_CATALYST_OPPORTUNITY"
                     ai_readiness = 98
@@ -560,7 +608,10 @@ def get_live_market_radar():
                     'is_news_catalyst': is_news_catalyst,
                     'news_headline': pair_sent.get('latest_headline', ''),
                     'news_headline_score': hl_sc,
-                    'news_stake_scale': 0.60 if is_news_catalyst else 1.0
+                    'news_stake_scale': 0.60 if is_news_catalyst else 1.0,
+                    'is_prebreakout_expansion': is_prebreakout_expansion,
+                    'expansion_side': exp_side if is_prebreakout_expansion else None,
+                    'expansion_stake_scale': 0.50 if is_prebreakout_expansion else 1.0
                 })
             except Exception as pe:
                 pass
@@ -1161,8 +1212,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     'open_orders': live_data.get('open_orders', []),
                     'ai_candidate_radar': ai_candidates,
                     'closed_trades': live_data.get('closed_trades', []),
-                    'ai_slot_mode': 'Dynamic Waterfall Multi-Slot Takeover (0 s.d. 3 Slot)',
-                    'ai_slots_available': max(0, 3 - len(live_data.get('open_trades', []))),
+                    'ai_slot_mode': '4-Slot Dedicated Architecture (3 Core + 1 Dedicated Engine Slot)',
+                    'ai_slots_available': max(0, cfg_info['max_open_trades'] - len(live_data.get('open_trades', []))),
+                    'max_open_trades': cfg_info['max_open_trades'],
                     'cluster_guard': 'Active (Maksimal 1 Posisi per Kluster)',
                     'chart_24h': benchmark_data.get('equity_curves', {}).get('24H', [])
                 },

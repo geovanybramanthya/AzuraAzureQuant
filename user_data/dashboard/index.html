@@ -158,13 +158,13 @@
                 <span class="px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-widest rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">TEAMWORK AKTIF</span>
               </div>
               <p class="text-xs text-slate-400 mt-0.5">
-                Alokasi 3 Slot Terbuka Dinamis (Dynamic Waterfall): Core V12 prioritas utama, AI mengambil alih 1 s.d. 3 slot saat Core idle dengan Cluster Diversification Guard.
+                Arsitektur 4 Slot Bersamaan (3 Core Slots + 1 Dedicated Expansion Engine Slot): Core Quant Model C prioritas 3 slot, AI Expansion Engine mendedikasikan 1 slot dengan Dual-Stage TP dan Cluster Guard.
               </p>
             </div>
           </div>
           <div class="flex items-center gap-2">
             <span class="px-3 py-1 rounded-lg bg-slate-900 border border-slate-800 text-xs mono text-slate-300 font-semibold">
-              Kapasitas: <span class="text-emerald-400 font-bold" id="tw-used-slots">0</span>/3 Slot Terpakai
+              Kapasitas: <span class="text-emerald-400 font-bold" id="tw-used-slots">0</span>/4 Slot Terpakai
             </span>
           </div>
         </div>
@@ -192,7 +192,7 @@
               </div>
               <div class="flex justify-between">
                 <span class="text-slate-400">Kapasitas Slot:</span>
-                <span class="text-white mono font-bold">Hingga 3 Slot (Prioritas Eksekusi)</span>
+                <span class="text-white mono font-bold">3 Slot Terdedikasi (Model C)</span>
               </div>
               <div class="flex justify-between">
                 <span class="text-slate-400">Status Eksekusi:</span>
@@ -208,7 +208,7 @@
                 <span class="w-2.5 h-2.5 rounded-full bg-amber-400 animate-ping"></span>
                 <span class="font-bold text-white uppercase text-[11px] tracking-wider">Engine 2: AI Strategic Supervisor</span>
               </div>
-              <span class="px-2 py-0.5 rounded text-[10px] font-extrabold bg-amber-500/20 text-amber-300 border border-amber-500/40">DYNAMIC TAKEOVER</span>
+              <span class="px-2 py-0.5 rounded text-[10px] font-extrabold bg-amber-500/20 text-amber-300 border border-amber-500/40">EXPANSION ENGINE</span>
             </div>
             <div class="space-y-1.5 text-slate-300">
               <div class="flex justify-between">
@@ -217,15 +217,15 @@
               </div>
               <div class="flex justify-between">
                 <span class="text-slate-400">Peran AI:</span>
-                <span class="text-amber-300">48h Support Floor + Squeeze Maker</span>
+                <span class="text-amber-300">Pre-Breakout Expansion + News Catalyst</span>
               </div>
               <div class="flex justify-between">
                 <span class="text-slate-400">Kapasitas Slot:</span>
-                <span class="text-white mono font-bold" id="tw-ai-slots-desc">Dinamis 1 s.d. 3 Slot</span>
+                <span class="text-white mono font-bold" id="tw-ai-slots-desc">1 Dedicated Slot (4th Slot)</span>
               </div>
               <div class="flex justify-between">
                 <span class="text-slate-400">Status Eksekusi:</span>
-                <span class="text-amber-300 font-semibold" id="tw-ai-status">Aktif Memindai 7 Calon Limit</span>
+                <span class="text-amber-300 font-semibold" id="tw-ai-status">Aktif Memindai 8 Calon Limit</span>
               </div>
             </div>
           </div>
@@ -318,7 +318,7 @@
           <div class="mt-3">
             <div class="text-3xl font-extrabold text-emerald-400 tracking-tight mono" id="live-floating-pnl">+$0.00 <span class="text-xs font-medium text-slate-400">(0.00%)</span></div>
             <div class="flex items-center gap-2 mt-2 text-xs text-slate-400">
-              <span>Posisi Terbuka:</span><span class="text-slate-200 font-semibold mono" id="live-open-slots">0 / 3 Slots</span>
+              <span>Posisi Terbuka:</span><span class="text-slate-200 font-semibold mono" id="live-open-slots">0 / 4 Slots</span>
             </div>
           </div>
           <div class="absolute bottom-0 left-0 right-0 h-1 bg-gradient-to-r from-purple-500 to-blue-500"></div>
@@ -1525,15 +1525,16 @@
       document.getElementById('live-session-deals-badge').textContent = `${closedCount} Deals Selesai Hari Ini`;
 
       const openTrades = liveData.open_trades || [];
+      const maxSlots = liveData.max_open_trades || 4;
       const openSlotsEl = document.getElementById('live-open-slots');
-      if (openSlotsEl) openSlotsEl.textContent = `${openTrades.length} / 3 Slots (Dinamis)`;
+      if (openSlotsEl) openSlotsEl.textContent = `${openTrades.length} / ${maxSlots} Slots (3 Core + 1 Engine)`;
       const openBadgeEl = document.getElementById('live-open-badge');
-      if (openBadgeEl) openBadgeEl.textContent = `${openTrades.length} Open / 3 Max`;
+      if (openBadgeEl) openBadgeEl.textContent = `${openTrades.length} Open / ${maxSlots} Max`;
       const twSlotsEl = document.getElementById('tw-used-slots');
       if (twSlotsEl) twSlotsEl.textContent = openTrades.length;
       const twAiDesc = document.getElementById('tw-ai-slots-desc');
       if (twAiDesc && liveData.ai_slots_available !== undefined) {
-        twAiDesc.textContent = `Dinamis: ${liveData.ai_slots_available} dari 3 Slot Terbuka`;
+        twAiDesc.textContent = `Tersedia: ${liveData.ai_slots_available} dari ${maxSlots} Slot`;
       }
 
       if (liveData.start_time) {
@@ -1567,14 +1568,14 @@
             </div>
             <div class="text-base font-bold text-white">Belum Ada Limit Order yang Terpasang di Orderbook Bybit</div>
             <p class="text-xs text-slate-400 max-w-xl mt-1.5 leading-relaxed">
-              AI Strategic Supervisor memantau 7 calon kandidat di bawah secara real-time. Resting maker limit order akan dipasang di Bybit Futures saat salah satu koin menguji lantai support 48 jam dengan konfirmasi wick rejection dan rasio proyeksi <strong class="text-amber-400">R:R ≥ 1.80:1</strong>.
+              AI Strategic Supervisor memantau 8 koin Bybit Futures secara real-time. Engine Pre-Breakout Range Expansion dan News Catalyst memasang resting maker limit order saat volatilitas terkompresi dan terkonfirmasi volume thrust dengan rasio <strong class="text-amber-400">R:R ≥ 2.0:1 s.d. 2.5:1</strong>.
             </p>
             <div class="mt-4 flex flex-wrap items-center justify-center gap-3 text-[11px] mono text-slate-300 bg-slate-900/90 px-4 py-2 rounded-xl border border-slate-800">
-              <span>Alokasi Slot AI: <strong class="text-emerald-400">Dinamis (Hingga 3 Slot saat V12 Idle)</strong></span>
+              <span>Alokasi Slot: <strong class="text-emerald-400">4 Slot (3 Core Model C + 1 Dedicated Engine Slot)</strong></span>
               <span>•</span>
-              <span>Proteksi Kluster: <strong class="text-cyan-400">Max 1 Posisi per Kluster (Major / Alt / Gold)</strong></span>
+              <span>Proteksi Kluster: <strong class="text-cyan-400">Max 1 Posisi per Kluster (Major / Alt / Gold / Momentum)</strong></span>
               <span>•</span>
-              <span>Audit Kandidat: <strong class="text-amber-400">7 Pasang di Radar Bawah</strong></span>
+              <span>Audit Kandidat: <strong class="text-amber-400">8 Pasang di Radar Bawah</strong></span>
             </div>
           </div>
         `;
@@ -2144,7 +2145,13 @@
 
           // Stage badge
           let stageBadge = '';
-          if (c.stage === 'READY_LIMIT') {
+          if (c.stage === 'PRE_BREAKOUT_EXPANSION') {
+            stageBadge = `<span class="px-2 py-0.5 rounded bg-cyan-500/25 text-cyan-300 border border-cyan-500/40 text-[10px] font-extrabold animate-pulse">PRE-BREAKOUT IGNITION</span>`;
+          } else if (c.stage === 'NEWS_CATALYST_OPPORTUNITY') {
+            stageBadge = `<span class="px-2 py-0.5 rounded bg-amber-500/25 text-amber-300 border border-amber-500/40 text-[10px] font-extrabold animate-pulse">KATALIS BERITA</span>`;
+          } else if (c.stage === 'PRE_BREAKOUT_COILING') {
+            stageBadge = `<span class="px-2 py-0.5 rounded bg-indigo-500/25 text-indigo-300 border border-indigo-500/40 text-[10px] font-bold">ASCENDING FLOOR</span>`;
+          } else if (c.stage === 'READY_LIMIT') {
             stageBadge = `<span class="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[10px] font-bold animate-pulse">SIAP LIMIT ENTRY</span>`;
           } else if (c.stage === 'SQUEEZE_ACTIVE') {
             stageBadge = `<span class="px-2 py-0.5 rounded bg-purple-500/20 text-purple-300 border border-purple-500/30 text-[10px] font-bold">SQUEEZE KOMPRESI</span>`;
