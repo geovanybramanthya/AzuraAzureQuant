@@ -690,6 +690,7 @@ class TestNewsCatalystExecutionE2E(unittest.TestCase):
                 "stake_scale": 0.60
             }
             daemon.scanner.evaluate_news_catalyst_opportunity.return_value = mock_news
+            daemon.scanner.evaluate_prebreakout_expansion_opportunity.return_value = None
             daemon.scanner.evaluate_opportunity.return_value = None
 
             daemon.run_cycle()
@@ -749,6 +750,7 @@ class TestNewsCatalystExecutionE2E(unittest.TestCase):
                 "buffered_be": 84189.0
             }
             daemon.scanner.evaluate_news_catalyst_opportunity.return_value = mock_news
+            daemon.scanner.evaluate_prebreakout_expansion_opportunity.return_value = None
             daemon.scanner.evaluate_opportunity.return_value = None
 
             daemon.run_cycle()

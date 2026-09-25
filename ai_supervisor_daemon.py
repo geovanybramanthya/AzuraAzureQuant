@@ -701,10 +701,14 @@ class MarketScanner:
         side = 'long' if is_long_valid else 'short'
         dec = 4 if current_price < 10 else 2
 
+        # Asset calibrations: PAXG TP1 0.7% (+1.0R = 0.7%, risk = 0.7%), Others 1.5% (+1.0R = 1.5%, risk = 1.5%)
+        is_paxg = ("PAXG" in pair)
+        risk_pct = 0.007 if is_paxg else 0.015
+
         # Resting maker pullback limit bid at C * (1 - 0.0018) for Long, (1 + 0.0018) for Short
         if side == 'long':
             limit_price = round(c * (1.0 - 0.0018), dec)
-            risk = round(limit_price * 0.015, dec)
+            risk = round(limit_price * risk_pct, dec)
             stop_loss = round(limit_price - risk, dec)
             tp1 = round(limit_price + 1.0 * risk, dec)
             buffered_be = round(limit_price + 0.15 * risk, dec)
@@ -712,7 +716,7 @@ class MarketScanner:
             headroom = headroom_long
         else:
             limit_price = round(c * (1.0 + 0.0018), dec)
-            risk = round(limit_price * 0.015, dec)
+            risk = round(limit_price * risk_pct, dec)
             stop_loss = round(limit_price + risk, dec)
             tp1 = round(limit_price - 1.0 * risk, dec)
             buffered_be = round(limit_price - 0.15 * risk, dec)
@@ -896,11 +900,13 @@ class AISupervisorDaemon:
                 is_news = ("news_catalyst" in enter_tag) or (matched_order and "news_catalyst" in matched_order.get("entry_tag", ""))
                 is_expansion = ("prebreakout_expansion" in enter_tag) or (matched_order and "prebreakout_expansion" in matched_order.get("entry_tag", ""))
                 is_short = ("short" in enter_tag) or (matched_order and matched_order.get("side") == "short") or bool(trade.get("is_short"))
+                is_paxg = ("PAXG" in pair)
                 dec = 5 if current_rate < 1 else 2
                 if matched_order and "risk" in matched_order and matched_order["risk"] is not None:
                     risk = float(matched_order["risk"])
                 else:
-                    risk = round(open_rate * (0.015 if (is_news or is_expansion) else (0.0747 if "DOGE" in pair else 0.020)), dec)
+                    risk_pct = 0.007 if (is_paxg and is_expansion) else (0.015 if (is_news or is_expansion) else (0.0747 if "DOGE" in pair else 0.020))
+                    risk = round(open_rate * risk_pct, dec)
 
                 runner_r = 2.5 if is_expansion else 2.0
                 be_r = 0.15 if (is_news or is_expansion) else -0.25
@@ -1082,9 +1088,12 @@ class AISupervisorDaemon:
             if "news_catalyst" in entry_tag:
                 stale_trigger = (duration_h >= 6.0 and spot_profit_pct <= -0.80) or (duration_h >= 12.0 and spot_profit_pct < 0.50)
             # 0B. Pre-Breakout Range Expansion Engine:
-            #     Rapid invalidation at 3h if spot <= -0.50%, timeout at 24h
+            #     Rapid invalidation at 3h if spot <= -0.50%, PAXG early stale cut at 8h, timeout at 24h
             elif "prebreakout_expansion" in entry_tag:
-                stale_trigger = (duration_h >= 3.0 and spot_profit_pct <= -0.50) or (duration_h >= 24.0)
+                if "PAXG" in pair:
+                    stale_trigger = (duration_h >= 8.0) or (duration_h >= 3.0 and spot_profit_pct <= -0.50)
+                else:
+                    stale_trigger = (duration_h >= 3.0 and spot_profit_pct <= -0.50) or (duration_h >= 24.0)
             # 1. PAXG Early Stale Prune: duration >= 8.0h and floating PnL <= -1.0% spot (-3.0% leveraged at 3x)
             elif "PAXG" in pair:
                 stale_trigger = (duration_h >= 8.0 and spot_profit_pct <= -1.0)
@@ -1137,13 +1146,19 @@ class AISupervisorDaemon:
         ai_active_count = sum(1 for t in open_trades if "ai_" in t.get('enter_tag', ''))
         core_active_count = active_count - ai_active_count
 
-        # Identify occupied clusters to prevent correlation risk
+        # Identify occupied pairs and clusters
+        occupied_pairs = set()
         occupied_clusters = set()
+        ai_occupied_clusters = set()
         unfilled_ai_trades = []
         for t in open_trades:
             p = t.get('pair')
-            c_name = self.get_pair_cluster(p)
-            occupied_clusters.add(c_name)
+            if p:
+                occupied_pairs.add(p)
+                c_name = self.get_pair_cluster(p)
+                occupied_clusters.add(c_name)
+                if "ai_" in t.get('enter_tag', ''):
+                    ai_occupied_clusters.add(c_name)
             if float(t.get('amount') or 0.0) == 0.0 and "ai_" in t.get('enter_tag', ''):
                 unfilled_ai_trades.append(t)
 
@@ -1211,7 +1226,7 @@ class AISupervisorDaemon:
                     f"VALID NEWS CATALYST CANDIDATE [{c_name.upper()}]: {pair} @ {news_opp['limit_price']} "
                     f"(Score={news_opp['headline_score']}, VolShock={news_opp['volume_ratio']}x, Thrust={news_opp['thrust_ratio']}x ATR, R:R={news_opp['rr_ratio']}:1)"
                 )
-                if c_name not in occupied_clusters:
+                if pair not in occupied_pairs and c_name not in ai_occupied_clusters:
                     if c_name not in cluster_opportunities:
                         cluster_opportunities[c_name] = []
                     cluster_opportunities[c_name].append(news_opp)
@@ -1225,7 +1240,7 @@ class AISupervisorDaemon:
                     f"VALID PRE-BREAKOUT EXPANSION CANDIDATE [{c_name.upper()}]: {pair} ({exp_opp['side'].upper()}) @ {exp_opp['limit_price']} "
                     f"(Vol={exp_opp['volume_ratio']}x, Headroom={exp_opp['headroom_pct']}%, Span={exp_opp['range_span_pct']}%, R:R={exp_opp['rr_ratio']}:1)"
                 )
-                if c_name not in occupied_clusters:
+                if pair not in occupied_pairs and c_name not in ai_occupied_clusters:
                     if c_name not in cluster_opportunities:
                         cluster_opportunities[c_name] = []
                     cluster_opportunities[c_name].append(exp_opp)
@@ -1338,7 +1353,11 @@ class AISupervisorDaemon:
 
         bal_data = self.client.get_balance()
         total_balance = float(bal_data.get('total', 1000.0))
-        base_stake = round((total_balance / float(self.max_portfolio_slots)) * 0.95, 2)
+        # Dedicated 4-Slot Architecture: 3 Core slots (stake = wallet / 3.0).
+        # Base stake is sized to Core slot (wallet / 3.0 * 0.95).
+        # Expansion Engine receives 0.50x of this -> effective stake = wallet / 6.0.
+        base_core_slots = 3.0
+        base_stake = round((total_balance / base_core_slots) * 0.95, 2)
 
         for target in dispatch_targets:
             pair = target['pair']

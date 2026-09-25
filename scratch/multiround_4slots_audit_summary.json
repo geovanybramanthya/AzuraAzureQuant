@@ -1,0 +1,80 @@
+[
+  {
+    "name": "Trial 1: Baseline + News Catalyst Only (4th Slot)",
+    "standalone_trades": 37,
+    "standalone_wr": 83.78,
+    "standalone_pf": 4.1,
+    "port_trades": 852,
+    "trades_per_day": 0.862,
+    "port_engine_exec": 29,
+    "port_wr": 74.18,
+    "port_max_dd": 20.56,
+    "port_wallet": 301699.95,
+    "port_pf": 2.19
+  },
+  {
+    "name": "Trial 2: Baseline + Calibrated Breakout (Vol>=2.4x, Adaptive Span, Alts Only, 4th Slot)",
+    "standalone_trades": 164,
+    "standalone_wr": 55.49,
+    "standalone_pf": 1.44,
+    "port_trades": 946,
+    "trades_per_day": 0.957,
+    "port_engine_exec": 123,
+    "port_wr": 72.2,
+    "port_max_dd": 19.46,
+    "port_wallet": 379388.89,
+    "port_pf": 2.16
+  },
+  {
+    "name": "Trial 3: Baseline + High-Frequency Breakout (Vol>=2.0x, Adaptive Span, Alts Only, 4th Slot)",
+    "standalone_trades": 192,
+    "standalone_wr": 51.04,
+    "standalone_pf": 1.18,
+    "port_trades": 969,
+    "trades_per_day": 0.981,
+    "port_engine_exec": 146,
+    "port_wr": 71.0,
+    "port_max_dd": 19.51,
+    "port_wallet": 361489.69,
+    "port_pf": 2.15
+  },
+  {
+    "name": "Trial 4: Baseline + Ultra-Quality Breakout (Vol>=2.8x, Adaptive Span, Alts Only, 4th Slot)",
+    "standalone_trades": 140,
+    "standalone_wr": 60.71,
+    "standalone_pf": 1.79,
+    "port_trades": 927,
+    "trades_per_day": 0.938,
+    "port_engine_exec": 104,
+    "port_wr": 73.14,
+    "port_max_dd": 20.56,
+    "port_wallet": 379632.36,
+    "port_pf": 2.19
+  },
+  {
+    "name": "Trial 5: Synergy Architecture (News Catalyst + Calibrated Breakout Vol>=2.2x in 4th Slot)",
+    "standalone_trades": 212,
+    "standalone_wr": 58.96,
+    "standalone_pf": 1.55,
+    "port_trades": 984,
+    "trades_per_day": 0.996,
+    "port_engine_exec": 161,
+    "port_wr": 71.75,
+    "port_max_dd": 19.46,
+    "port_wallet": 385046.05,
+    "port_pf": 2.16
+  },
+  {
+    "name": "Trial 6: Synergy High-Velocity (News Catalyst + Breakout Vol>=1.8x in 4th Slot)",
+    "standalone_trades": 242,
+    "standalone_wr": 55.79,
+    "standalone_pf": 1.36,
+    "port_trades": 1003,
+    "trades_per_day": 1.015,
+    "port_engine_exec": 180,
+    "port_wr": 70.99,
+    "port_max_dd": 19.51,
+    "port_wallet": 375088.02,
+    "port_pf": 2.17
+  }
+]

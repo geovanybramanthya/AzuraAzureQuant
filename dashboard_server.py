@@ -441,15 +441,18 @@ def get_live_market_radar():
                 is_prebreakout_expansion = is_exp_long or is_exp_short
                 exp_side = 'long' if is_exp_long else 'short'
 
+                is_paxg_exp = ("PAXG" in p)
+                risk_pct_exp = 0.007 if is_paxg_exp else 0.015
+
                 if is_prebreakout_expansion:
                     if exp_side == 'long':
                         cand_limit_price = round(c_prev * (1.0 - 0.0018), dec)
-                        risk = round(cand_limit_price * 0.015, dec)
+                        risk = round(cand_limit_price * risk_pct_exp, dec)
                         stop_loss = round(cand_limit_price - risk, dec)
                         target_tp = round(cand_limit_price + 2.5 * risk, dec)
                     else:
                         cand_limit_price = round(c_prev * (1.0 + 0.0018), dec)
-                        risk = round(cand_limit_price * 0.015, dec)
+                        risk = round(cand_limit_price * risk_pct_exp, dec)
                         stop_loss = round(cand_limit_price + risk, dec)
                         target_tp = round(cand_limit_price - 2.5 * risk, dec)
                     rr_ratio = 2.5

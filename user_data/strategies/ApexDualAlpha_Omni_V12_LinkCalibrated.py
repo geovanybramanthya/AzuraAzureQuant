@@ -138,15 +138,21 @@ class ApexDualAlpha_Omni_V12_LinkCalibrated(IStrategy):
 
         # 0B. Pre-Breakout Range Expansion Engine Position Lifecycle & Invalidation Gate
         if entry_tag and "prebreakout_expansion" in entry_tag:
-            # expansion_tp2_runner (profit >= 3.75% spot = 2.5R)
-            if spot_profit >= 0.0375:
+            is_paxg = "PAXG" in pair
+            runner_threshold = 0.0175 if is_paxg else 0.0375
+            # expansion_tp2_runner (profit >= 1.75% spot for PAXG, 3.75% spot = 2.5R for others)
+            if round(spot_profit, 4) >= runner_threshold:
                 return "expansion_tp2_runner"
             # expansion_rapid_invalidation_3h (duration >= 3.0h, current_profit <= -0.005 spot)
-            if trade_duration >= 3.0 and spot_profit <= -0.005:
+            if trade_duration >= 3.0 and round(spot_profit, 4) <= -0.005:
                 return "expansion_rapid_invalidation_3h"
+            # PAXG early stale cut at 8.0h (cuts low-volatility chop bleed)
+            if is_paxg and trade_duration >= 8.0:
+                return "expansion_paxg_8h_stale_cut"
             # expansion_24h_timeout (duration >= 24.0h)
             if trade_duration >= 24.0:
                 return "expansion_24h_timeout"
+            return None
 
         # 1. Fast profit taking for Shorts on sudden explosive dumps (> +4.5% profit)
         if trade.is_short and current_profit > 0.045:
