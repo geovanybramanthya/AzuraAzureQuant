@@ -140,63 +140,41 @@ def test_strategy_scaling_and_exits():
             self.leverage = leverage
             self.is_short = is_short
 
-    # 3A. Expansion TP2 Runner (+2.5R = +3.75% spot = +11.25% leveraged at 3x for Altcoins)
+    # 3A. Expansion TP2 Runner (+2.2R = +3.30% spot = +9.90% leveraged at 3x)
     t_runner = MockTrade(now - timedelta(hours=4), "ai_prebreakout_expansion_long", leverage=3.0)
     exit_runner = strat.custom_exit(
         pair="SOL/USDT:USDT",
         trade=t_runner,
         current_time=now,
         current_rate=160.0,
-        current_profit=0.1125  # spot_profit = 0.1125 / 3.0 = 0.0375 >= 0.0375
+        current_profit=0.0990  # spot_profit = 0.0990 / 3.0 = 0.0330 >= 0.0330
     )
     assert exit_runner == "expansion_tp2_runner", f"Expected expansion_tp2_runner, got {exit_runner}"
 
-    # 3B. Expansion TP2 Runner for PAXG (+2.5R = +1.75% spot = +5.25% leveraged at 3x)
-    t_runner_paxg = MockTrade(now - timedelta(hours=4), "ai_prebreakout_expansion_long", leverage=3.0)
-    exit_runner_paxg = strat.custom_exit(
-        pair="PAXG/USDT:USDT",
-        trade=t_runner_paxg,
-        current_time=now,
-        current_rate=2700.0,
-        current_profit=0.0525  # spot_profit = 0.0525 / 3.0 = 0.0175 >= 0.0175
-    )
-    assert exit_runner_paxg == "expansion_tp2_runner", f"Expected expansion_tp2_runner for PAXG, got {exit_runner_paxg}"
-
-    # 3C. Expansion Rapid Invalidation at 3h if spot PnL <= -0.50% (-0.005)
-    t_inv = MockTrade(now - timedelta(hours=3.5), "ai_prebreakout_expansion_long", leverage=3.0)
+    # 3B. Expansion Rapid Invalidation at 4.0h if spot PnL <= -0.60% (-0.0060)
+    t_inv = MockTrade(now - timedelta(hours=4.5), "ai_prebreakout_expansion_long", leverage=3.0)
     exit_inv = strat.custom_exit(
         pair="SOL/USDT:USDT",
         trade=t_inv,
         current_time=now,
         current_rate=145.0,
-        current_profit=-0.018  # spot_profit = -0.018 / 3.0 = -0.006 <= -0.005
+        current_profit=-0.021  # spot_profit = -0.021 / 3.0 = -0.007 <= -0.0060
     )
-    assert exit_inv == "expansion_rapid_invalidation_3h", f"Expected expansion_rapid_invalidation_3h, got {exit_inv}"
+    assert exit_inv == "expansion_rapid_invalidation_4h", f"Expected expansion_rapid_invalidation_4h, got {exit_inv}"
 
-    # 3D. PAXG Early Stale Cut at 8h
-    t_paxg_stale = MockTrade(now - timedelta(hours=8.5), "ai_prebreakout_expansion_long", leverage=3.0)
-    exit_paxg_stale = strat.custom_exit(
-        pair="PAXG/USDT:USDT",
-        trade=t_paxg_stale,
-        current_time=now,
-        current_rate=2650.0,
-        current_profit=0.001
-    )
-    assert exit_paxg_stale == "expansion_paxg_8h_stale_cut", f"Expected expansion_paxg_8h_stale_cut, got {exit_paxg_stale}"
-
-    # 3E. General Altcoin at 8h should NOT trigger PAXG stale cut
-    t_sol_8h = MockTrade(now - timedelta(hours=8.5), "ai_prebreakout_expansion_long", leverage=3.0)
-    exit_sol_8h = strat.custom_exit(
+    # 3C. Healthy trade at 4.5h with spot -0.30% (-0.0030) should NOT trigger rapid invalidation
+    t_healthy = MockTrade(now - timedelta(hours=4.5), "ai_prebreakout_expansion_long", leverage=3.0)
+    exit_healthy = strat.custom_exit(
         pair="SOL/USDT:USDT",
-        trade=t_sol_8h,
+        trade=t_healthy,
         current_time=now,
-        current_rate=146.0,
-        current_profit=0.003
+        current_rate=149.0,
+        current_profit=-0.009  # spot_profit = -0.009 / 3.0 = -0.003 > -0.0060
     )
-    assert exit_sol_8h is None, f"Expected None for SOL at 8h, got {exit_sol_8h}"
+    assert exit_healthy is None, f"Expected None for healthy trade at 4.5h, got {exit_healthy}"
 
-    # 3F. Expansion 24h Timeout
-    t_timeout = MockTrade(now - timedelta(hours=24.5), "ai_prebreakout_expansion_long", leverage=3.0)
+    # 3D. Expansion 16h Timeout
+    t_timeout = MockTrade(now - timedelta(hours=16.5), "ai_prebreakout_expansion_long", leverage=3.0)
     exit_timeout = strat.custom_exit(
         pair="SOL/USDT:USDT",
         trade=t_timeout,
@@ -204,7 +182,7 @@ def test_strategy_scaling_and_exits():
         current_rate=150.0,
         current_profit=0.005
     )
-    assert exit_timeout == "expansion_24h_timeout", f"Expected expansion_24h_timeout, got {exit_timeout}"
+    assert exit_timeout == "expansion_16h_timeout", f"Expected expansion_16h_timeout, got {exit_timeout}"
 
     print(" -> PASSED: Strategy scaling, leverage calibration, and custom exits verified.")
 
@@ -224,12 +202,17 @@ def test_market_scanner_opportunity():
     df_1h_sol = pd.DataFrame({
         "timestamp": [int(d.timestamp() * 1000) for d in dates_1h],
         "open": base_sol - 0.2,
-        "high": base_sol + 0.8,
-        "low": base_sol - 0.5,
+        "high": base_sol + 0.3,
+        "low": base_sol - 0.3,
         "close": base_sol,
         "volume": [1000.0] * (n_1h - 2) + [3500.0, 1000.0],
         "date": dates_1h
     })
+    # Set solid displacement body for thrust candle (index -2)
+    df_1h_sol.loc[df_1h_sol.index[-2], "open"] = 143.8
+    df_1h_sol.loc[df_1h_sol.index[-2], "close"] = 145.0
+    df_1h_sol.loc[df_1h_sol.index[-2], "high"] = 145.2
+    df_1h_sol.loc[df_1h_sol.index[-2], "low"] = 143.7
     df_1h_sol.loc[df_1h_sol.index[-30], "high"] = 148.0
     df_1h_sol.loc[df_1h_sol.index[-40], "low"] = 140.0
 
@@ -259,69 +242,23 @@ def test_market_scanner_opportunity():
     assert opp["entry_tag"] == "ai_prebreakout_expansion_long"
     assert opp["stake_scale"] == 0.50
     assert opp["leverage"] == 3.0
-    assert opp["rr_ratio"] == 2.5
+    assert opp["rr_ratio"] == 2.2
 
-    # Check Dual-Stage targets for Altcoin (risk = 1.5%):
-    expected_limit = round(145.0 * (1.0 - 0.0018), 2)
-    expected_risk = round(expected_limit * 0.015, 2)
-    expected_tp1 = round(expected_limit + 1.0 * expected_risk, 2)
-    expected_be = round(expected_limit + 0.15 * expected_risk, 2)
-    expected_tp2 = round(expected_limit + 2.5 * expected_risk, 2)
+    # Check Dual-Stage targets (Pareto Config B: TP1 = 0.8R, BE = 0.15R, TP2 = 2.2R):
+    assert opp["limit_price"] == 144.7
+    assert opp["risk"] == 2.17
+    assert opp["tp1"] == 146.44
+    assert opp["buffered_be"] == 145.03
+    assert opp["tp2"] == 149.47
 
-    assert abs(opp["limit_price"] - expected_limit) < 0.02
-    assert abs(opp["risk"] - expected_risk) < 0.02
-    assert abs(opp["tp1"] - expected_tp1) < 0.02
-    assert abs(opp["buffered_be"] - expected_be) < 0.02
-    assert abs(opp["tp2"] - expected_tp2) < 0.02
-
-    # PAXG Setup (PAXG TP1 0.7% calibration)
-    base_paxg = 2600.0 + np.sin(np.linspace(0, 12, n_1h)) * 5.0
-    base_paxg[-2] = 2600.0
-    base_paxg[-1] = 2601.0
-
-    df_1h_paxg = pd.DataFrame({
-        "timestamp": [int(d.timestamp() * 1000) for d in dates_1h],
-        "open": base_paxg - 2.0,
-        "high": base_paxg + 6.0,
-        "low": base_paxg - 4.0,
-        "close": base_paxg,
-        "volume": [500.0] * (n_1h - 2) + [1800.0, 500.0],
-        "date": dates_1h
-    })
-    df_1h_paxg.loc[df_1h_paxg.index[-30], "high"] = 2650.0
-    df_1h_paxg.loc[df_1h_paxg.index[-40], "low"] = 2580.0
-
-    c_4h_paxg = np.linspace(2400.0, 2600.0, n_4h)
-    df_4h_paxg = pd.DataFrame({
-        "timestamp": [int(d.timestamp() * 1000) for d in dates_4h],
-        "open": c_4h_paxg - 2.0,
-        "high": c_4h_paxg + 5.0,
-        "low": c_4h_paxg - 2.0,
-        "close": c_4h_paxg,
-        "volume": [2000.0] * n_4h,
-        "date": dates_4h
-    })
-
-    scanner._candle_cache[("PAXG/USDT:USDT", "1h")] = (9999999999.0, df_1h_paxg)
-    scanner._candle_cache[("PAXG/USDT:USDT", "4h")] = (9999999999.0, df_4h_paxg)
-
+    # PAXG Verification: Strictly excluded from expansion scanner (Pareto Config B)
     sent_state_paxg = {"pairs": {"PAXG/USDT:USDT": {"blackout_active": False, "sentiment_score": 0.05}}}
     deriv_state_paxg = {"pairs": {"PAXG/USDT:USDT": {"funding_rate_8h_pct": 0.001, "squeeze_signal": "NONE"}}}
 
     opp_paxg = scanner.evaluate_prebreakout_expansion_opportunity("PAXG/USDT:USDT", sent_state_paxg, deriv_state_paxg)
-    assert opp_paxg is not None, "Expected candidate opportunity for PAXG, got None"
-    
-    # For PAXG: risk MUST be 0.007 (0.7% TP1)
-    paxg_limit = opp_paxg["limit_price"]
-    expected_paxg_risk = round(paxg_limit * 0.007, 2)
-    expected_paxg_tp1 = round(paxg_limit + 1.0 * expected_paxg_risk, 2)
-    expected_paxg_tp2 = round(paxg_limit + 2.5 * expected_paxg_risk, 2)
+    assert opp_paxg is None, f"Expected PAXG to be strictly excluded from expansion scanner, got {opp_paxg}"
 
-    assert abs(opp_paxg["risk"] - expected_paxg_risk) < 0.05, f"PAXG risk expected {expected_paxg_risk}, got {opp_paxg['risk']}"
-    assert abs(opp_paxg["tp1"] - expected_paxg_tp1) < 0.05, f"PAXG TP1 expected {expected_paxg_tp1}, got {opp_paxg['tp1']}"
-    assert abs(opp_paxg["tp2"] - expected_paxg_tp2) < 0.05, f"PAXG TP2 expected {expected_paxg_tp2}, got {opp_paxg['tp2']}"
-
-    print(f" -> PASSED: MarketScanner produced valid candidate @ SOL TP1={opp['tp1']}, PAXG TP1={opp_paxg['tp1']} (+0.7%)")
+    print(f" -> PASSED: MarketScanner produced valid candidate @ SOL TP1={opp['tp1']}, TP2={opp['tp2']}, and PAXG strictly excluded.")
 
 
 def test_dual_stage_tp_lifecycle():
@@ -352,9 +289,9 @@ def test_dual_stage_tp_lifecycle():
     pair_long = "SOL/USDT:USDT"
     open_rate_long = 140.0
     risk_long = round(open_rate_long * 0.015, 2)  # 2.10
-    tp1_long = round(open_rate_long + 1.0 * risk_long, 2)  # 142.10
+    tp1_long = round(open_rate_long + 0.8 * risk_long, 2)  # 141.68
     buffered_be_long = round(open_rate_long + 0.15 * risk_long, 2)  # 140.32
-    tp2_long = round(open_rate_long + 2.5 * risk_long, 2)  # 145.25
+    tp2_long = round(open_rate_long + 2.2 * risk_long, 2)  # 144.62
 
     daemon.state["ai_orders"] = [{
         "pair": pair_long,
@@ -378,8 +315,8 @@ def test_dual_stage_tp_lifecycle():
     daemon.inspect_dynamic_take_profits()
     assert len(mock_client.exits) == 0, "No exit expected below TP1"
 
-    # Price reaches TP1 (142.20 >= 142.10) -> Liquidate 50% size (5.0 units)
-    mock_client.status[0]["current_rate"] = 142.20
+    # Price reaches TP1 (141.70 >= 141.68) -> Liquidate 50% size (5.0 units)
+    mock_client.status[0]["current_rate"] = 141.70
     daemon.inspect_dynamic_take_profits()
     assert len(mock_client.exits) == 1
     assert mock_client.exits[0]["amount"] == 5.0
@@ -395,12 +332,12 @@ def test_dual_stage_tp_lifecycle():
 
     # 2. Short Trade Test
     trade_id_short = 202
-    pair_short = "ADA/USDT:USDT"
-    open_rate_short = 0.5000
-    risk_short = round(open_rate_short * 0.015, 4)  # 0.0075
-    tp1_short = round(open_rate_short - 1.0 * risk_short, 4)  # 0.4925
-    buffered_be_short = round(open_rate_short - 0.15 * risk_short, 4)  # 0.4989
-    tp2_short = round(open_rate_short - 2.5 * risk_short, 4)  # 0.4813
+    pair_short = "ETH/USDT:USDT"
+    open_rate_short = 2500.0
+    risk_short = round(open_rate_short * 0.015, 2)  # 37.50
+    tp1_short = round(open_rate_short - 0.8 * risk_short, 2)  # 2470.00
+    buffered_be_short = round(open_rate_short - 0.15 * risk_short, 2)  # 2494.38
+    tp2_short = round(open_rate_short - 2.2 * risk_short, 2)  # 2417.50
 
     daemon.state["ai_orders"].append({
         "pair": pair_short,
@@ -415,8 +352,8 @@ def test_dual_stage_tp_lifecycle():
     mock_client.status = [{
         "trade_id": trade_id_short,
         "pair": pair_short,
-        "current_rate": 0.4990,
-        "amount": 1000.0,
+        "current_rate": 2480.0,
+        "amount": 2.0,
         "open_rate": open_rate_short,
         "enter_tag": "ai_prebreakout_expansion_short",
         "is_short": True
@@ -424,36 +361,59 @@ def test_dual_stage_tp_lifecycle():
     daemon.inspect_dynamic_take_profits()
     assert len(mock_client.exits) == 2  # No new exits yet
 
-    # Short price drops to TP1 (0.4920 <= 0.4925) -> Liquidate 50% size (500 units)
-    mock_client.status[0]["current_rate"] = 0.4920
+    # Short price drops to TP1 (2469.0 <= 2470.0) -> Liquidate 50% size (1.0 units)
+    mock_client.status[0]["current_rate"] = 2469.0
     daemon.inspect_dynamic_take_profits()
     assert len(mock_client.exits) == 3
-    assert mock_client.exits[2]["amount"] == 500.0
+    assert mock_client.exits[2]["amount"] == 1.0
     pos_key_short = f"{trade_id_short}_{pair_short}"
     assert daemon.state["ai_positions"][pos_key_short]["tp1_executed"] is True
 
-    # Short price drops further to TP2 Runner (0.4800 <= 0.4813) -> Close remaining 50%
-    mock_client.status[0]["current_rate"] = 0.4800
-    mock_client.status[0]["amount"] = 500.0
+    # Short price drops further to TP2 Runner (2415.0 <= 2417.5) -> Close remaining 50%
+    mock_client.status[0]["current_rate"] = 2415.0
+    mock_client.status[0]["amount"] = 1.0
     daemon.inspect_dynamic_take_profits()
     assert len(mock_client.exits) == 4
     assert daemon.state["ai_positions"][pos_key_short]["tp2_executed"] is True
 
-    # 3. PAXG 8h Early Stale Pruning Test
-    mock_client.status = [{
-        "trade_id": 303,
-        "pair": "PAXG/USDT:USDT",
-        "open_date": (datetime.now(timezone.utc) - timedelta(hours=8.5)).strftime("%Y-%m-%d %H:%M:%S"),
-        "leverage": 3.0,
-        "current_profit_pct": -0.003,
-        "amount": 1.0,
-        "enter_tag": "ai_prebreakout_expansion_long"
-    }]
+    # 3. Expansion Stale Pruning Tests (Pareto Config B)
+    now = datetime.now(timezone.utc)
+    mock_client.status = [
+        {
+            "trade_id": 301,
+            "pair": "SOL/USDT:USDT",
+            "open_date": (now - timedelta(hours=4.5)).strftime("%Y-%m-%d %H:%M:%S"),
+            "leverage": 3.0,
+            "profit_pct": -2.1,  # spot -0.70% <= -0.60%
+            "amount": 10.0,
+            "enter_tag": "ai_prebreakout_expansion_long"
+        },
+        {
+            "trade_id": 302,
+            "pair": "BTC/USDT:USDT",
+            "open_date": (now - timedelta(hours=16.5)).strftime("%Y-%m-%d %H:%M:%S"),
+            "leverage": 3.0,
+            "profit_pct": 0.6,   # spot +0.20%
+            "amount": 0.05,
+            "enter_tag": "ai_prebreakout_expansion_long"
+        },
+        {
+            "trade_id": 303,
+            "pair": "ETH/USDT:USDT",
+            "open_date": (now - timedelta(hours=5.0)).strftime("%Y-%m-%d %H:%M:%S"),
+            "leverage": 3.0,
+            "profit_pct": 1.5,   # spot +0.50% > -0.60%
+            "amount": 1.0,
+            "enter_tag": "ai_prebreakout_expansion_long"
+        }
+    ]
     daemon.state["pruned_trades"] = []
     daemon.inspect_stale_positions()
-    assert 303 in daemon.state["pruned_trades"], "Expected PAXG trade #303 to be pruned at 8.5h"
+    assert 301 in daemon.state["pruned_trades"], "Expected trade 301 to be pruned via 4h invalidation"
+    assert 302 in daemon.state["pruned_trades"], "Expected trade 302 to be pruned via 16h timeout"
+    assert 303 not in daemon.state["pruned_trades"], "Trade 303 is healthy and must not be pruned"
 
-    print(" -> PASSED: Dual-Stage Dynamic TP & Buffered BE lifecycle verified successfully for Long, Short, and PAXG.")
+    print(" -> PASSED: Dual-Stage Dynamic TP & Buffered BE lifecycle verified successfully for Long, Short, and Stale Pruning.")
 
 
 def run_all_tests():

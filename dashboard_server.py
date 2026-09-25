@@ -428,34 +428,44 @@ def get_live_market_radar():
                 range_span_val = (resistance_ceil - support_floor) / support_floor if support_floor > 0 else 0.0
                 span_ok = (range_span_val <= max_asset_span)
 
+                asset_exp = p.split('/')[0].upper()
+                allowed_longs_exp = ['ADA', 'BTC', 'ETH', 'HYPE', 'SOL']
+                allowed_shorts_exp = ['BTC', 'ETH', 'HYPE']
+                can_long_exp = (asset_exp in allowed_longs_exp) and (asset_exp != 'PAXG')
+                can_short_exp = (asset_exp in allowed_shorts_exp) and (asset_exp != 'PAXG')
+
                 rising_floor_exp = (local_floor_12 >= local_floor_24 * 0.998) if (local_floor_12 and local_floor_24) else True
                 falling_ceil_exp = (local_ceil_12 <= local_ceil_24 * 1.002) if (local_ceil_12 and local_ceil_24) else True
-                headroom_long_exp = ((resistance_ceil - c_prev) / c_prev >= 0.015) if c_prev > 0 else False
-                headroom_short_exp = ((c_prev - support_floor) / c_prev >= 0.015) if c_prev > 0 else False
-                rsi_long_exp = (48.0 <= r <= 68.0)
+                headroom_long_exp = ((resistance_ceil - c_prev) / c_prev >= 0.014) if c_prev > 0 else False
+                headroom_short_exp = ((c_prev - support_floor) / c_prev >= 0.014) if c_prev > 0 else False
+                rsi_long_exp = (46.0 <= r <= 68.0)
                 rsi_short_exp = (32.0 <= r <= 52.0)
                 adx_ok_exp = (adx4 >= 20.0)
 
-                is_exp_long = bool(not is_blackout and macro_bull and headroom_long_exp and rising_floor_exp and vol_shock and rsi_long_exp and adx_ok_exp and vol_comp_expansion and span_ok)
-                is_exp_short = bool(not is_blackout and macro_bear and headroom_short_exp and falling_ceil_exp and vol_shock and rsi_short_exp and adx_ok_exp and vol_comp_expansion and span_ok)
+                o_prev = float(df_1h['open'].iloc[-2]) if (df_1h is not None and len(df_1h) >= 2) else c_prev
+                thrust_long_exp = ((c_prev - o_prev) >= 1.0 * (atr or 0.0))
+                thrust_short_exp = ((o_prev - c_prev) >= 1.0 * (atr or 0.0))
+
+                is_exp_long = bool(can_long_exp and not is_blackout and macro_bull and thrust_long_exp and headroom_long_exp and rising_floor_exp and (vol_ratio >= 1.7) and rsi_long_exp and adx_ok_exp and vol_comp_expansion and span_ok)
+                is_exp_short = bool(can_short_exp and not is_blackout and macro_bear and thrust_short_exp and headroom_short_exp and falling_ceil_exp and (vol_ratio >= 1.7) and rsi_short_exp and adx_ok_exp and vol_comp_expansion and span_ok)
                 is_prebreakout_expansion = is_exp_long or is_exp_short
                 exp_side = 'long' if is_exp_long else 'short'
 
-                is_paxg_exp = ("PAXG" in p)
-                risk_pct_exp = 0.007 if is_paxg_exp else 0.015
+                risk_pct_exp = 0.015
 
                 if is_prebreakout_expansion:
+                    c_range_exp = h_prev - l_prev
                     if exp_side == 'long':
-                        cand_limit_price = round(c_prev * (1.0 - 0.0018), dec)
+                        cand_limit_price = round(min(c_prev - 0.20 * c_range_exp, c_prev * 0.9985), dec)
                         risk = round(cand_limit_price * risk_pct_exp, dec)
                         stop_loss = round(cand_limit_price - risk, dec)
-                        target_tp = round(cand_limit_price + 2.5 * risk, dec)
+                        target_tp = round(cand_limit_price + 2.2 * risk, dec)
                     else:
-                        cand_limit_price = round(c_prev * (1.0 + 0.0018), dec)
+                        cand_limit_price = round(max(c_prev + 0.20 * c_range_exp, c_prev * 1.0015), dec)
                         risk = round(cand_limit_price * risk_pct_exp, dec)
                         stop_loss = round(cand_limit_price + risk, dec)
-                        target_tp = round(cand_limit_price - 2.5 * risk, dec)
-                    rr_ratio = 2.5
+                        target_tp = round(cand_limit_price - 2.2 * risk, dec)
+                    rr_ratio = 2.2
                     dist_usd = abs(c - cand_limit_price)
                     dist_pct = (dist_usd / c) * 100.0 if c > 0 else 0.0
                 elif is_news_catalyst:

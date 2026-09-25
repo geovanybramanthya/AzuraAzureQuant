@@ -632,11 +632,22 @@ class MarketScanner:
         if prev_res <= 0 or prev_sup <= 0 or c <= 0 or atr_val <= 0:
             return None
 
-        # Asset Range Span Threshold Adaptation
+        # Asset Range Span Threshold Adaptation & Whitelist Calibration (Pareto Frontier Config B)
+        # PAXG strictly excluded from expansion scanner (reserved solely for Model C scalp)
+        if "PAXG" in pair:
+            return None
+
         asset = pair.split('/')[0].upper()
+        allowed_longs = ['ADA', 'BTC', 'ETH', 'HYPE', 'SOL']
+        allowed_shorts = ['BTC', 'ETH', 'HYPE']
+        can_long = asset in allowed_longs
+        can_short = asset in allowed_shorts
+        if not (can_long or can_short):
+            return None
+
         span_thresholds = {
             'BTC': 0.050, 'ETH': 0.055, 'SOL': 0.065, 'ADA': 0.070,
-            'DOGE': 0.070, 'LINK': 0.065, 'PAXG': 0.035, 'HYPE': 0.085
+            'DOGE': 0.070, 'LINK': 0.065, 'HYPE': 0.085
         }
         max_span = span_thresholds.get(asset, 0.065)
         range_span_48 = (prev_res - prev_sup) / prev_sup
@@ -655,10 +666,17 @@ class MarketScanner:
             logger.debug(f"[EXPANSION VETO] No volatility compression on {pair} (TTM={ttm_squeeze}, BBw={bb_w:.4f} > q25={q25_val:.4f})")
             return None
 
-        # 2. Volume thrust >= 2.2x SMA20
-        if v_mean <= 0 or v < 2.2 * v_mean:
-            logger.debug(f"[EXPANSION VETO] Volume thrust failed on {pair}: {v:.1f} < 2.2 * {v_mean:.1f}")
+        # 2. Volume thrust >= 1.7x SMA20
+        if v_mean <= 0 or v < 1.7 * v_mean:
+            logger.debug(f"[EXPANSION VETO] Volume thrust failed on {pair}: {v:.1f} < 1.7 * {v_mean:.1f}")
             return None
+
+        # 3. Displacement Thrust (Solid Body >= 1.0x ATR)
+        o = float(candle['open'])
+        body_long = c - o
+        body_short = o - c
+        thrust_long = (body_long >= 1.0 * atr_val)
+        thrust_short = (body_short >= 1.0 * atr_val)
 
         # Derivatives check
         pair_deriv = deriv_state.get("pairs", {}).get(pair, {})
@@ -670,12 +688,14 @@ class MarketScanner:
         # Evaluate Long Opportunity
         headroom_long = (prev_res - c) / c
         rising_floor = (low_12 >= low_24 * 0.998) if low_24 > 0 else True
-        rsi_long_ok = (48.0 <= rsi_val <= 68.0)
+        rsi_long_ok = (46.0 <= rsi_val <= 68.0)
         deriv_long_ok = (funding_rate <= 0.030) and (squeeze_sig != "LONG_FLUSH_WARNING") and not (deriv_regime == "LONG_OVERHEATED" and lev_risk == "HIGH")
 
         is_long_valid = (
+            can_long and
             macro_bull_4h and
-            (headroom_long >= 0.015) and
+            thrust_long and
+            (headroom_long >= 0.014) and
             rising_floor and
             rsi_long_ok and
             deriv_long_ok
@@ -688,8 +708,10 @@ class MarketScanner:
         deriv_short_ok = (funding_rate >= -0.030) and (squeeze_sig != "SHORT_SQUEEZE_ALERT")
 
         is_short_valid = (
+            can_short and
             macro_bear_4h and
-            (headroom_short >= 0.015) and
+            thrust_short and
+            (headroom_short >= 0.014) and
             falling_ceiling and
             rsi_short_ok and
             deriv_short_ok
@@ -700,27 +722,29 @@ class MarketScanner:
 
         side = 'long' if is_long_valid else 'short'
         dec = 4 if current_price < 10 else 2
+        c_range = h - l
+        risk_pct = 0.015
 
-        # Asset calibrations: PAXG TP1 0.7% (+1.0R = 0.7%, risk = 0.7%), Others 1.5% (+1.0R = 1.5%, risk = 1.5%)
-        is_paxg = ("PAXG" in pair)
-        risk_pct = 0.007 if is_paxg else 0.015
-
-        # Resting maker pullback limit bid at C * (1 - 0.0018) for Long, (1 + 0.0018) for Short
+        # Resting maker pullback limit bid: 20% into thrust candle range
         if side == 'long':
-            limit_price = round(c * (1.0 - 0.0018), dec)
+            limit_bid = c - 0.20 * c_range
+            limit_bid = min(limit_bid, c * 0.9985)
+            limit_price = round(limit_bid, dec)
             risk = round(limit_price * risk_pct, dec)
             stop_loss = round(limit_price - risk, dec)
-            tp1 = round(limit_price + 1.0 * risk, dec)
+            tp1 = round(limit_price + 0.8 * risk, dec)
             buffered_be = round(limit_price + 0.15 * risk, dec)
-            tp2 = round(limit_price + 2.5 * risk, dec)
+            tp2 = round(limit_price + 2.2 * risk, dec)
             headroom = headroom_long
         else:
-            limit_price = round(c * (1.0 + 0.0018), dec)
+            limit_bid = c + 0.20 * c_range
+            limit_bid = max(limit_bid, c * 1.0015)
+            limit_price = round(limit_bid, dec)
             risk = round(limit_price * risk_pct, dec)
             stop_loss = round(limit_price + risk, dec)
-            tp1 = round(limit_price - 1.0 * risk, dec)
+            tp1 = round(limit_price - 0.8 * risk, dec)
             buffered_be = round(limit_price - 0.15 * risk, dec)
-            tp2 = round(limit_price - 2.5 * risk, dec)
+            tp2 = round(limit_price - 2.2 * risk, dec)
             headroom = headroom_short
 
         # BTC leverage calibrated to 3.0x to cut whipsaws by 57%
@@ -744,7 +768,7 @@ class MarketScanner:
             'buffered_be': buffered_be,
             'take_profit': tp2,
             'target_tp': tp2,
-            'rr_ratio': 2.5,
+            'rr_ratio': 2.2,
             'stake_scale': 0.50,
             'leverage': leverage,
             '4h_adx': round(latest_4h_adx, 1),
@@ -908,20 +932,21 @@ class AISupervisorDaemon:
                     risk_pct = 0.007 if (is_paxg and is_expansion) else (0.015 if (is_news or is_expansion) else (0.0747 if "DOGE" in pair else 0.020))
                     risk = round(open_rate * risk_pct, dec)
 
-                runner_r = 2.5 if is_expansion else 2.0
+                runner_r = 2.2 if is_expansion else 2.0
+                tp1_r = 0.8 if is_expansion else 1.0
                 be_r = 0.15 if (is_news or is_expansion) else -0.25
 
                 if matched_order and matched_order.get("buffered_be") is not None:
                     buffered_be = float(matched_order["buffered_be"])
-                    tp1_target = float(matched_order.get("tp1", round((open_rate - 1.0 * risk) if is_short else (open_rate + 1.0 * risk), dec)))
+                    tp1_target = float(matched_order.get("tp1", round((open_rate - tp1_r * risk) if is_short else (open_rate + tp1_r * risk), dec)))
                     tp2_target = float(matched_order.get("tp2", round((open_rate - runner_r * risk) if is_short else (open_rate + runner_r * risk), dec)))
                 else:
                     if is_short:
-                        tp1_target = round(open_rate - 1.0 * risk, dec)
+                        tp1_target = round(open_rate - tp1_r * risk, dec)
                         tp2_target = round(open_rate - runner_r * risk, dec)
                         buffered_be = round(open_rate - be_r * risk, dec)
                     else:
-                        tp1_target = round(open_rate + 1.0 * risk, dec)
+                        tp1_target = round(open_rate + tp1_r * risk, dec)
                         tp2_target = round(open_rate + runner_r * risk, dec)
                         buffered_be = round(open_rate + be_r * risk, dec)
 
@@ -944,7 +969,7 @@ class AISupervisorDaemon:
                 self.save_state()
                 logger.info(
                     f"REGISTERED DUAL-TP TARGETS for Trade #{trade_id} ({pair}, side={'SHORT' if is_short else 'LONG'}): "
-                    f"Entry={open_rate}, Risk={risk}, TP1={tp1_target} (1.0R), "
+                    f"Entry={open_rate}, Risk={risk}, TP1={tp1_target} ({tp1_r}R), "
                     f"TP2={tp2_target} ({runner_r}R), Buffered BE={buffered_be}"
                 )
 
@@ -1087,13 +1112,10 @@ class AISupervisorDaemon:
             #     >= 6.0h at spot <= -0.80% (Rapid Invalidation) OR >= 12.0h at spot < +0.50% (Stagnation Cutoff)
             if "news_catalyst" in entry_tag:
                 stale_trigger = (duration_h >= 6.0 and spot_profit_pct <= -0.80) or (duration_h >= 12.0 and spot_profit_pct < 0.50)
-            # 0B. Pre-Breakout Range Expansion Engine:
-            #     Rapid invalidation at 3h if spot <= -0.50%, PAXG early stale cut at 8h, timeout at 24h
+            # 0B. Pre-Breakout Range Expansion Engine (Pareto Config B):
+            #     Rapid invalidation at 4.0h if spot <= -0.60%, timeout at 16.0h
             elif "prebreakout_expansion" in entry_tag:
-                if "PAXG" in pair:
-                    stale_trigger = (duration_h >= 8.0) or (duration_h >= 3.0 and spot_profit_pct <= -0.50)
-                else:
-                    stale_trigger = (duration_h >= 3.0 and spot_profit_pct <= -0.50) or (duration_h >= 24.0)
+                stale_trigger = (duration_h >= 4.0 and spot_profit_pct <= -0.60) or (duration_h >= 16.0)
             # 1. PAXG Early Stale Prune: duration >= 8.0h and floating PnL <= -1.0% spot (-3.0% leveraged at 3x)
             elif "PAXG" in pair:
                 stale_trigger = (duration_h >= 8.0 and spot_profit_pct <= -1.0)
