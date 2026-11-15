@@ -195,16 +195,41 @@ WHITELIST_PAIRS = [
     "HYPE/USDT:USDT"
 ]
 
+# Minimum number of headlines required before a per-pair sentiment score is
+# allowed to become non-neutral (and thus influence strategy vetoes).
+# Below this count the pair score is forced neutral (0.0): with only 1-2
+# headlines a single article can pin an extreme score (observed live:
+# LINK stuck at -0.71, and HYPE at +0.1779 from a single headline).
+MIN_PAIR_HEADLINE_COUNT = 3
+
+# Documented macro crash threshold: -0.45 (PRD / strategy contract:
+# global cancellation only when macro_crash_alert is active or
+# macro_score <= -0.45). Both macro_blackout_active and macro_crash_alert
+# use this single constant so the crash alert cannot silently trigger
+# earlier than documented (it previously used -0.35, see aggregate code).
+MACRO_CRASH_ALERT_THRESHOLD = -0.45
+
 # Regex patterns for asset entity recognition
+# Audit 2026-10-21 (all pairs):
+# - BTC/ETH/SOL/ADA/DOGE/PAXG: bare tickers/names are asset-specific in
+#   crypto RSS feeds (bitcoin, ethereum, solana, cardano, dogecoin, pax gold)
+#   and are kept as-is. Residual risk noted for short names (sol, ada) but
+#   no ordinary-English collision was observed for them in these feeds.
+# - LINK: FIXED. Bare "link" is an ordinary English word ("link in bio",
+#   "link below", hyperlinks) and polluted LINK's score. Now only a cashtag
+#   ($LINK), a pair mention (LINK/USDT), or the token name Chainlink counts.
+# - HYPE: FIXED, same flaw as LINK. Bare "hype" is an ordinary English word
+#   ("AI hype", "market hype"). Now only $HYPE, HYPE/USDT, or Hyperliquid
+#   counts.
 ASSET_PATTERNS = {
     "BTC/USDT:USDT": re.compile(r"\b(btc|bitcoin|satoshi)\b", re.IGNORECASE),
     "ETH/USDT:USDT": re.compile(r"\b(eth|ethereum|ether|vitalik)\b", re.IGNORECASE),
     "SOL/USDT:USDT": re.compile(r"\b(sol|solana)\b", re.IGNORECASE),
     "ADA/USDT:USDT": re.compile(r"\b(ada|cardano|hoskinson)\b", re.IGNORECASE),
     "DOGE/USDT:USDT": re.compile(r"\b(doge|dogecoin)\b", re.IGNORECASE),
-    "LINK/USDT:USDT": re.compile(r"\b(link|chainlink)\b", re.IGNORECASE),
+    "LINK/USDT:USDT": re.compile(r"(\$link\b|\blink\s*/\s*usdt\b|chainlink)", re.IGNORECASE),
     "PAXG/USDT:USDT": re.compile(r"\b(paxg|pax gold|gold token)\b", re.IGNORECASE),
-    "HYPE/USDT:USDT": re.compile(r"\b(hype|hyperliquid)\b", re.IGNORECASE)
+    "HYPE/USDT:USDT": re.compile(r"(\$hype\b|\bhype\s*/\s*usdt\b|hyperliquid)", re.IGNORECASE)
 }
 
 # Critical Crisis / Blackout Triggers
@@ -220,8 +245,30 @@ FALSE_POSITIVE_PATTERNS = [
     re.compile(r"\bhack\s+vc\b", re.IGNORECASE),
     re.compile(r"\bhackathon[s]?\b", re.IGNORECASE),
     re.compile(r"\bwhite[-\s]?hat\b", re.IGNORECASE),
-    re.compile(r"\banti[-\s]?fraud\b", re.IGNORECASE)
+    re.compile(r"\banti[-\s]?fraud\b", re.IGNORECASE),
+    re.compile(r"\b(?:months?|weeks?|years?|days?)\s+after\s+(?:the\s+)?[\$\w\s]*?(?:hack|exploit|attack|collapse)\b", re.IGNORECASE),
+    re.compile(r"\bpast\s+(?:hack|exploit|attack)\b", re.IGNORECASE),
+    re.compile(r"\bhistorical\s+(?:hack|exploit|attack)\b", re.IGNORECASE)
 ]
+
+
+def get_article_age_hours(item: Dict[str, Any], now_utc: datetime) -> float:
+    """Calculates article age in hours from publication timestamp."""
+    ts_str = item.get("published_at") or item.get("fetched_at")
+    if not ts_str:
+        return 999.0
+    try:
+        if now_utc.tzinfo is None:
+            now_utc = now_utc.replace(tzinfo=timezone.utc)
+        if HAS_DATEUTIL:
+            dt = dateutil.parser.parse(ts_str)
+        else:
+            dt = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return max(0.0, (now_utc - dt).total_seconds() / 3600.0)
+    except Exception:
+        return 999.0
 
 # RSS Feed Sources
 RSS_FEEDS = [
@@ -324,6 +371,9 @@ class NewsSentimentDaemon:
 
         # In-memory rolling history of evaluated news (up to 300 items)
         self.article_cache: Dict[str, Dict[str, Any]] = {}
+        # INSTR: previous blackout states (transition logging) + last archived hour.
+        self._prev_blackouts: Dict[str, Any] = {}
+        self._last_archive_hour = None
         self.load_existing_state()
 
     def load_existing_state(self):
@@ -344,6 +394,21 @@ class NewsSentimentDaemon:
                                 pub_at, pub_wib = parse_feed_timestamp(None, fallback_raw=item.get("published_raw") or item.get("fetched_at"))
                                 item["published_at"] = pub_at
                                 item["published_wib"] = pub_wib
+
+                            # Discard articles older than 36h to prevent stale memory buildup
+                            now_utc = datetime.now(timezone.utc)
+                            if get_article_age_hours(item, now_utc) > 36.0:
+                                continue
+
+                            # Re-verify blackout flag using updated false-positive patterns
+                            if item.get("blackout"):
+                                pairs = item.get("pairs") or []
+                                compound = float(item.get("compound_score", 0.0) or 0.0)
+                                updated_blackouts = self.check_pair_blackouts(item.get("title", ""), item.get("summary", ""), pairs, compound)
+                                item["blackout"] = len(updated_blackouts) > 0
+                                item["blackout_pairs"] = list(updated_blackouts.keys())
+                                item["blackout_reason"] = list(updated_blackouts.values())[0] if item["blackout"] else None
+
                             self.article_cache[item_id] = item
                 logger.info(f"Loaded {len(self.article_cache)} cached articles from {self.state_file}")
             except Exception as e:
@@ -445,7 +510,10 @@ class NewsSentimentDaemon:
         Requires sentence-level co-occurrence between the asset mention and a crisis trigger,
         and compound sentiment score <= -0.35, excluding false positives (e.g. Hack VC, Hackathon).
         """
-        if compound_score > -0.30 or not pairs:
+        # Gate aligned with the docstring above (<= -0.35): previously the
+        # code used -0.30, so blackouts effectively triggered earlier than
+        # documented.
+        if compound_score > -0.35 or not pairs:
             return {}
 
         full_text = f"{title}. {summary}"
@@ -540,11 +608,18 @@ class NewsSentimentDaemon:
                 return 0.0
             try:
                 if HAS_DATEUTIL:
-                    return dateutil.parser.parse(ts_str).timestamp()
-                return datetime.fromisoformat(ts_str.replace("Z", "+00:00")).timestamp()
+                    dt = dateutil.parser.parse(ts_str)
+                else:
+                    dt = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                return dt.timestamp()
             except Exception:
                 return 0.0
 
+        # Scope C: Prune articles older than 36h from rolling cache
+        self.article_cache = {k: v for k, v in self.article_cache.items() if get_article_age_hours(v, now) <= 36.0}
+        all_articles = list(self.article_cache.values())
         all_articles.sort(key=get_article_sort_ts, reverse=True)
 
         # Keep cache capped at 300
@@ -553,9 +628,15 @@ class NewsSentimentDaemon:
             self.article_cache = {item.get("link") or item.get("title"): item for item in kept}
             all_articles = kept
 
-        # Global macro sentiment
-        scores = [item.get("compound_score", 0.0) for item in all_articles[:100]]
-        macro_score = round(sum(scores) / len(scores), 4) if scores else 0.0
+        # Global macro sentiment with 18h half-life exponential time-decay
+        macro_weighted = []
+        macro_weights = []
+        for item in all_articles[:100]:
+            age_h = get_article_age_hours(item, now)
+            w = 0.5 ** (age_h / 18.0) if age_h >= 0 else 1.0
+            macro_weighted.append(item.get("compound_score", 0.0) * w)
+            macro_weights.append(w)
+        macro_score = round(sum(macro_weighted) / sum(macro_weights), 4) if macro_weights and sum(macro_weights) > 0 else 0.0
 
         if macro_score >= 0.12:
             macro_regime = "BULLISH"
@@ -564,6 +645,9 @@ class NewsSentimentDaemon:
         else:
             macro_regime = "NEUTRAL"
 
+        # Scope C: Only articles within the last 24h count towards macro counts & crash alerts
+        recent_articles = [it for it in all_articles if get_article_age_hours(it, now) <= 24.0]
+        scores = [item.get("compound_score", 0.0) for item in (recent_articles[:100] if recent_articles else all_articles[:100])]
         bullish_cnt = sum(1 for s in scores if s >= 0.15)
         bearish_cnt = sum(1 for s in scores if s <= -0.15)
         neutral_cnt = len(scores) - bullish_cnt - bearish_cnt
@@ -571,17 +655,42 @@ class NewsSentimentDaemon:
         # Per-pair state
         pair_state: Dict[str, Any] = {}
         for pair in WHITELIST_PAIRS:
-            pair_articles = [item for item in all_articles if pair in item.get("pairs", [])]
-            pair_scores = [item["compound_score"] for item in pair_articles]
-            avg_score = round(sum(pair_scores) / len(pair_scores), 4) if pair_scores else 0.0
+            pair_articles = [item for item in all_articles if pair in (item.get("pairs") or [])]
+            
+            # Compute age-decayed weighted sentiment score (18h half-life)
+            weighted_scores = []
+            weights = []
+            active_blackouts = []
 
-            # Check if any blackout active for this specific pair
-            recent_blackouts = [
-                item for item in pair_articles[:15]
-                if item.get("blackout") and pair in item.get("blackout_pairs", [])
-            ]
-            blackout_active = len(recent_blackouts) > 0
-            blackout_reason = recent_blackouts[0]["blackout_reason"] if blackout_active else None
+            for item in pair_articles:
+                age_h = get_article_age_hours(item, now)
+                score = float(item.get("compound_score", 0.0) or 0.0)
+                # Exponential decay weight with 18h half-life
+                weight = 0.5 ** (age_h / 18.0) if age_h >= 0 else 1.0
+                weighted_scores.append(score * weight)
+                weights.append(weight)
+
+                # Scope C: Fix Stale False-Positive Blackout Decay:
+                # ONLY articles published within the last 18 hours can trigger an active crisis blackout!
+                # Articles older than 18 hours decay and are excluded from active crisis detection,
+                # ensuring historical discussions or stale mentions do not permanently paralyze pairs like ETH/LINK.
+                if age_h <= 18.0 and item.get("blackout") and pair in (item.get("blackout_pairs") or []):
+                    active_blackouts.append(item)
+
+            avg_score = round(sum(weighted_scores) / sum(weights), 4) if weights and sum(weights) > 0 else (
+                round(sum([it.get("compound_score", 0.0) for it in pair_articles]) / len(pair_articles), 4) if pair_articles else 0.0
+            )
+
+            # Minimum sample guard (see MIN_PAIR_HEADLINE_COUNT): with fewer
+            # than MIN_PAIR_HEADLINE_COUNT headlines the score is not
+            # meaningful, so force it neutral (0.0) so it cannot influence
+            # vetoes. Event-risk blackout detection below is separate and
+            # is NOT disabled by this guard.
+            if len(pair_articles) < MIN_PAIR_HEADLINE_COUNT:
+                avg_score = 0.0
+
+            blackout_active = len(active_blackouts) > 0
+            blackout_reason = active_blackouts[0]["blackout_reason"] if blackout_active else None
 
             # Regime tag
             if blackout_active:
@@ -601,12 +710,39 @@ class NewsSentimentDaemon:
                 "sentiment_regime": pair_regime,
                 "headline_count": len(pair_articles),
                 "blackout_active": blackout_active,
+                "is_event_risk_blackout": blackout_active,
                 "blackout_reason": blackout_reason,
                 "latest_headline": latest_item["title"] if latest_item else "No recent asset-specific headlines",
                 "latest_headline_score": latest_item["compound_score"] if latest_item else 0.0,
                 "latest_headline_source": latest_item["source"] if latest_item else "-"
             }
 
+        # Macro Crash and Blackout Alert Telemetry (PRD Pilar 1 & Pilar 3)
+        # Perbaikan Bug Global Blackout Veto: Macro blackout hanya aktif jika sentimen makro benar-benar kolaps secara sistemik
+        macro_blackout_active = (macro_score <= MACRO_CRASH_ALERT_THRESHOLD) or (bearish_cnt > bullish_cnt * 3 and len(scores) >= 15)
+        # Crash alert aligned to the documented -0.45 (MACRO_CRASH_ALERT_THRESHOLD):
+        # previously this line used -0.35 with a lower sample floor (>= 10) - a
+        # two-level alert mismatch - while the strategy treats macro_crash_alert
+        # as the -0.45 global-cancellation trigger, so cancellations effectively
+        # fired at -0.35. Score threshold and sample floor now match blackout.
+        macro_crash_alert = (macro_score <= MACRO_CRASH_ALERT_THRESHOLD) or (bearish_cnt > bullish_cnt * 3 and len(scores) >= 15)
+
+        # INSTR (observability only): log blackout transitions only; no score/blackout math changed.
+        _prev = getattr(self, "_prev_blackouts", None)
+        if _prev is None:
+            _prev = {}
+            self._prev_blackouts = _prev
+        for _pair, _pstate in pair_state.items():
+            _cur = bool(_pstate["blackout_active"])
+            _old = _prev.get(_pair)
+            if _old is not None and _old != _cur:
+                logger.info(f"[INSTR-BLACKOUT] pair={_pair} blackout {_old}->{_cur} reason={_pstate.get('blackout_reason')} at={now.isoformat()}")
+            _prev[_pair] = _cur
+        for _key, _cur in (("MACRO_BLACKOUT", macro_blackout_active), ("MACRO_CRASH", macro_crash_alert)):
+            _old = _prev.get(_key)
+            if _old is not None and _old != _cur:
+                logger.info(f"[INSTR-BLACKOUT] pair={_key} blackout {_old}->{_cur} reason=macro at={now.isoformat()}")
+            _prev[_key] = _cur
         state_payload = {
             "last_updated": now.isoformat(),
             "daemon_status": "ONLINE",
@@ -614,11 +750,19 @@ class NewsSentimentDaemon:
             "macro_sentiment": {
                 "score": macro_score,
                 "regime": macro_regime,
+                "macro_blackout_active": macro_blackout_active,
+                "is_macro_blackout_active": macro_blackout_active,
+                "macro_crash_alert": macro_crash_alert,
+                "is_macro_crash_alert": macro_crash_alert,
                 "sample_size": len(scores),
                 "bullish_count": bullish_cnt,
                 "bearish_count": bearish_cnt,
                 "neutral_count": neutral_cnt
             },
+            "macro_blackout_active": macro_blackout_active,
+            "is_macro_blackout_active": macro_blackout_active,
+            "macro_crash_alert": macro_crash_alert,
+            "is_macro_crash_alert": macro_crash_alert,
             "pairs": pair_state,
             "recent_feed": all_articles[:50]
         }
@@ -633,6 +777,30 @@ class NewsSentimentDaemon:
                 json.dump(state_payload, f, indent=2, ensure_ascii=False)
             os.replace(tmp_file, self.state_file)
             logger.info(f"Sentiment state successfully updated ({self.state_file}). Macro score: {state_payload['macro_sentiment']['score']} ({state_payload['macro_sentiment']['regime']})")
+            # INSTR (observability only): hourly archive copy of the state file.
+            # Never fails the main save: the whole block is wrapped in try/except.
+            try:
+                _now_utc = datetime.now(timezone.utc)
+                _hour_key = _now_utc.strftime("%Y%m%d-%H")
+                if getattr(self, "_last_archive_hour", None) != _hour_key:
+                    _archive_dir = os.path.join(os.path.dirname(self.state_file), "sentiment_archive")
+                    os.makedirs(_archive_dir, exist_ok=True)
+                    _archive_path = os.path.join(_archive_dir, f"sentiment_state_{_now_utc.strftime('%Y%m%d-%H%M')}.json")
+                    with open(_archive_path, "w", encoding="utf-8") as _af:
+                        json.dump(state_payload, _af, indent=2, ensure_ascii=False)
+                    self._last_archive_hour = _hour_key
+                    # Prune archives older than 30 days.
+                    _cutoff = _now_utc - timedelta(days=30)
+                    for _fname in os.listdir(_archive_dir):
+                        if _fname.startswith("sentiment_state_") and _fname.endswith(".json"):
+                            _fpath = os.path.join(_archive_dir, _fname)
+                            try:
+                                if datetime.fromtimestamp(os.path.getmtime(_fpath), tz=timezone.utc) < _cutoff:
+                                    os.remove(_fpath)
+                            except OSError:
+                                pass
+            except Exception as _arch_e:
+                logger.warning(f"[INSTR-ARCHIVE] archive failed (main save unaffected): {_arch_e}")
         except Exception as e:
             logger.error(f"Error saving sentiment state: {e}")
             if os.path.exists(tmp_file):

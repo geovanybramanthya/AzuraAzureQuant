@@ -39,6 +39,8 @@ Key Structural Components & Quantum Upgrades (V25):
    - Dynamic Chandelier ATR Ratchet for mature runners (peak profit >= 15%, trailing 2.5x ATR).
    - Smart 4th Slot Directional Cluster Gating.
    - Calibrated Resting Maker Limit Engine (+0.020% Bybit rebate).
+
+INSTR (observability only, zero backtest effect by design): gate snapshot logging + F1b warning; no condition/threshold changed.
 """
 
 import os
@@ -113,9 +115,13 @@ class ApexDualAlpha_Omni_V26_Optimized(IStrategy):
     # In-memory O(1) candle lookup cache for custom_exit, custom_entry_price, and smart gating
     _candle_cache: Dict[str, Dict[datetime, Dict[str, float]]] = {}
 
+    # INSTR: last candle date logged per pair for gate snapshots (dedup only)
+    _instr_logged: Dict[str, str] = {}
+
     def __init__(self, config: dict) -> None:
         super().__init__(config)
         self._candle_cache = {}
+        self._instr_logged = {}
 
     # Dynamic thread-safe cached sentiment state (TTL = 15s)
     _sentiment_cache: Dict[str, Any] = {}
@@ -738,6 +744,8 @@ class ApexDualAlpha_Omni_V26_Optimized(IStrategy):
             if col not in dataframe.columns:
                 # F1b (LIVE-ONLY, zero backtest effect by design): fail-closed fallback - missing regime columns default to False; previously bull columns defaulted to True (fail-open).
                 dataframe[col] = False
+                # INSTR (observability only): warn when the fail-closed fallback fires.
+                logger.warning(f"[INSTR-F1B] pair={pair} missing regime column {col}, defaulting False (fail-closed)")
 
         if f"adx_{self.informative_timeframe}" not in dataframe.columns:
             dataframe[f"adx_{self.informative_timeframe}"] = 25.0
@@ -1030,6 +1038,54 @@ class ApexDualAlpha_Omni_V26_Optimized(IStrategy):
         dataframe.loc[short_fade & ~long_pullback & ~long_squeeze & ~long_rs, ["enter_short", "enter_tag"]] = (1, "short_atr_fade_alpha")
         dataframe.loc[short_breakdown & ~long_pullback & ~long_squeeze & ~long_rs & ~short_fade, ["enter_short", "enter_tag"]] = (1, "short_breakdown_alpha")
 
+        # INSTR (observability only): one gate-snapshot log line per new candle per pair.
+        # Read-only (iloc); never writes to the dataframe; no condition/threshold changed.
+        try:
+            if not dataframe.empty:
+                _last_date = str(dataframe["date"].iloc[-1])
+                _logged = getattr(self, "_instr_logged", None)
+                if _logged is None:
+                    _logged = {}
+                    self._instr_logged = _logged
+                if _logged.get(pair) != _last_date:
+                    _logged[pair] = _last_date
+
+                    def _g(col):
+                        try:
+                            return dataframe[col].iloc[-1]
+                        except Exception:
+                            return float("nan")
+
+                    def _g_shift1(col):
+                        # Entry conditions use .shift(1), so the last usable value is iloc[-2].
+                        try:
+                            if len(dataframe) < 2:
+                                return float("nan")
+                            return dataframe[col].iloc[-2]
+                        except Exception:
+                            return float("nan")
+
+                    _vol = _g("volume")
+                    _vol_mean = _g("volume_mean_20")
+                    try:
+                        _vol_ratio = float(_vol) / float(_vol_mean) if _vol_mean not in (0, 0.0) and not pd.isna(_vol_mean) else float("nan")
+                    except Exception:
+                        _vol_ratio = float("nan")
+
+                    logger.info(
+                        f"[INSTR-GATE] pair={pair} date={_last_date} "
+                        f"macro_bull_4h={_g(f'macro_bull_4h_{self.informative_timeframe}')} "
+                        f"macro_bear_4h={_g(f'macro_bear_4h_{self.informative_timeframe}')} "
+                        f"macro_bull_4h_adaptive={_g(f'macro_bull_4h_adaptive_{self.informative_timeframe}')} "
+                        f"adx_4h={_g(f'adx_{self.informative_timeframe}')} "
+                        f"rsi={_g('rsi')} slowk={_g('slowk')} slowd={_g('slowd')} "
+                        f"close={_g('close')} ema_21={_g('ema_21')} ema_50={_g('ema_50')} ema_200={_g('ema_200')} "
+                        f"support_level_20_shift1={_g_shift1('support_level_20')} "
+                        f"taker_sell_volume_surge={_g('taker_sell_volume_surge')} vol_ratio={_vol_ratio} "
+                        f"enter_long={_g('enter_long')} enter_short={_g('enter_short')} enter_tag={_g('enter_tag')}"
+                    )
+        except Exception as _instr_exc:
+            logger.warning(f"[INSTR-GATE] snapshot failed for pair={pair}: {_instr_exc}")
         return dataframe
 
     def populate_exit_trend(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
